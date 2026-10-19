@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "ChurnThemTokens",
+  "version": "0.1.0",
+  "description": "Connect an explicitly selected ChatGPT Pro web chat to your local computer tools. No Codex or model API calls.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "nativeMessaging"
+  ],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ChurnThemTokens"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqnHt48GxXUeGSJhihAEg/C4mNrKoYoQl3+mniKWoIUl/ncExO6Vtod6EU5LLP2jWyUh2riUc6HIXZOseosh3pudT+/ljRCC34/cHpk9/X56PAMs1+SLmUQKkAaEj3z4U/AJCm5xYMYOP7l8Zji9H+mdYcVgiNhzMhMfKGCsje+Gbrg67c1Vsb6o0rsLcr8DClZNpg9LgiHd3F6XJ8rrxuKYb47S+vyzfoANkqOkSQMwstrg84XxcdmK9EA69+ZGI6mj6u9yAyq7UzNJByNHkdRGiRj94ltDv81h+MxkIO08lyV9WC0ncsn9+YSwPhdlJePPLW4ea9LpblJduFWeOoQIDAQAB"
+}

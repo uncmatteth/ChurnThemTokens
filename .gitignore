@@ -1,0 +1,13 @@
+node_modules/
+__pycache__/
+*.pyc
+*.tgz
+*.crx
+*.pem
+*.key
+.env
+.env.*
+config.json
+state/
+.churn-them-tokens/
+screenshots/

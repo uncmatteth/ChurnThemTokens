@@ -1,0 +1,38 @@
+:root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; color: #17212b; background: #f8fafc; }
+* { box-sizing: border-box; }
+body { width: 380px; margin: 0; padding: 20px; }
+[hidden] { display: none !important; }
+h1 { font-size: 23px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -.5px; }
+p { margin: 0 0 12px; text-wrap: pretty; }
+header p, .hint, footer { color: #586674; }
+.connection { margin: 18px 0 12px; }
+#status { font-weight: 600; font-variant-numeric: tabular-nums; }
+button, textarea, summary { font: inherit; }
+button { width: 100%; min-height: 44px; padding: 10px 12px; margin: 0 0 8px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background-color 120ms, border-color 120ms; }
+.primary { background: #16644c; color: white; }
+.primary:hover:not(:disabled) { background: #0e503c; }
+.secondary { background: #e8efec; color: #164d3c; }
+.secondary:hover:not(:disabled) { background: #dce7e1; }
+.quiet { color: #52606d; background: transparent; border-color: #cad3dc; margin-top: 8px; }
+button:disabled { cursor: default; opacity: .5; }
+button:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid #4e9dff; outline-offset: 2px; }
+.access { border: 1px solid #d6dee5; background: white; border-radius: 10px; padding: 12px; margin: 0 0 18px; }
+.access p { margin-bottom: 0; }
+summary { cursor: pointer; min-height: 40px; padding-top: 10px; color: #52606d; }
+ul { padding-left: 18px; margin: 4px 0 0; }
+li { overflow-wrap: anywhere; font-size: 12px; }
+label { display: block; font-weight: 600; margin-bottom: 6px; }
+textarea { display: block; width: 100%; resize: vertical; border: 1px solid #aab8c5; background: white; color: inherit; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.hint, footer { font-size: 12px; }
+#error { padding: 12px; background: #fff1ea; border: 1px solid #edbba4; border-radius: 8px; color: #853a1d; overflow-wrap: anywhere; }
+#completion { white-space: pre-wrap; overflow-wrap: anywhere; }
+footer { border-top: 1px solid #d6dee5; padding-top: 12px; margin-top: 12px; }
+@media (prefers-color-scheme: dark) {
+  :root { color: #edf2f7; background: #182026; }
+  header p, .hint, footer, summary, .quiet { color: #b2bec9; }
+  .access, textarea { background: #222d35; border-color: #485965; }
+  .secondary { background: #2b443b; color: #d9f0e6; }
+  .secondary:hover:not(:disabled) { background: #345347; }
+  .quiet, footer { border-color: #485965; }
+  #error { background: #402c23; color: #ffd1bd; border-color: #8c5a43; }
+}

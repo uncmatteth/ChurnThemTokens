@@ -1,0 +1,38 @@
+{
+  "name": "churn-them-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Give your existing ChatGPT Pro web chat local computer tools. No Codex model calls.",
+  "type": "commonjs",
+  "bin": {
+    "churn-them-tokens": "install.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check core.js && node --check transport.js && node --check cli.js && node --check native.js && node --check install.js && node --check browser-relay/worker.js && node --check browser-relay/content.js && node --check browser-relay/popup.js && node --test test/*.test.js",
+    "package:guard": "node scripts/package-guard.js",
+    "start": "node cli.js serve --stdio"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "files": [
+    "core.js",
+    "transport.js",
+    "cli.js",
+    "native.js",
+    "install.js",
+    "scripts/package-guard.js",
+    "browser-relay/",
+    "ui_backend.py",
+    "requirements-ui.txt",
+    "README.md",
+    "SECURITY.md",
+    "TESTING.md",
+    "AGENTS.md",
+    "LICENSE",
+    "test/*.js",
+    "test/*.py"
+  ],
+  "license": "MIT"
+}

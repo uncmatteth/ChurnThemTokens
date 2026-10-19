@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ChurnThemTokens</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><h1>ChurnThemTokens</h1><p>Your ChatGPT Pro chat, with tools on your computer.</p></header>
+  <section class="connection" aria-label="Connection">
+    <p id="status" role="status" aria-live="polite">Open your Pro chat in ChatGPT, then connect.</p>
+    <button id="connect" class="primary">Connect this Pro chat</button>
+  </section>
+  <p id="error" role="alert" hidden></p>
+  <section id="task-panel" hidden>
+    <div class="access"><p id="permissions"></p><details><summary>Allowed folders</summary><ul id="roots"></ul></details></div>
+    <label for="task">What should it do?</label>
+    <textarea id="task" rows="3" placeholder="Describe a task for this computer…" maxlength="16000"></textarea>
+    <p class="hint">Running a task allows this chat to use the access shown above. Tool results are sent to this ChatGPT conversation.</p>
+    <button id="start" class="primary" disabled>Allow tools &amp; run task</button>
+    <button id="check" class="secondary">Allow tools &amp; run quick check</button>
+    <p id="check-help" class="hint">The quick check creates, reads and removes a temporary file, then runs a harmless command.</p>
+    <p id="completion" hidden></p>
+    <button id="stop" class="quiet">Disconnect &amp; stop</button>
+  </section>
+  <footer>Uses your existing ChatGPT login. No Codex or model API calls.</footer>
+  <script src="popup.js"></script>
+</body></html>
