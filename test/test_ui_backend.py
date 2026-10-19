@@ -38,10 +38,27 @@ class DesktopValidation(unittest.TestCase):
         self.gui.write.assert_not_called()
     def test_long_ascii_typing_fits_the_helper_time_budget(self):
         text = "a" * 16384
-        self.backend.desktop({"operation": "type", "text": text})
+        with patch.object(module.sys, "platform", "linux"):
+            self.backend.desktop({"operation": "type", "text": text})
         args, kwargs = self.gui.write.call_args
         self.assertEqual(args[0], text)
         self.assertLessEqual(len(text) * kwargs["interval"], 5)
+    def test_macos_long_typing_is_rejected_before_any_keys_are_sent(self):
+        self.gui.DARWIN_CATCH_UP_TIME = 0.01
+        self.gui.PAUSE = 0.1
+        with patch.object(module.sys, "platform", "darwin"):
+            for text in ("a" * 16384, "A" * 1000):
+                with self.assertRaisesRegex(ValueError, "Split"):
+                    self.backend.desktop({"operation": "type", "text": text})
+        self.gui.write.assert_not_called()
+    def test_macos_typing_budget_includes_shift_events_and_configured_delays(self):
+        self.gui.DARWIN_CATCH_UP_TIME = 0.02
+        self.gui.PAUSE = 0.2
+        with patch.object(module.sys, "platform", "darwin"):
+            with self.assertRaisesRegex(ValueError, "Split"):
+                self.backend.desktop({"operation": "type", "text": "A" * 300})
+            self.backend.desktop({"operation": "type", "text": "A" * 200})
+        self.gui.write.assert_called_once_with("A" * 200, interval=0.01)
     def test_wayland_fails_explicitly(self):
         with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
             with self.assertRaisesRegex(ValueError, "Wayland"):

@@ -145,6 +145,21 @@ test('read-only Git inspection never executes configured content filters', { ski
   assert.equal(fs.existsSync(marker), false);
   assert.match((await f.call('git_read', { project: 'sample', operation: 'log' })).stdout, /fixture/);
 });
+test('read-only project context never executes configured content filters', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t, { exec: false }), git = initGit(f.root);
+  const marker = path.join(f.temp, 'context-filter-ran'), script = path.join(f.temp, 'filter.js');
+  fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(marker)},'ran');process.stdin.pipe(process.stdout);`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  git('config', 'filter.fixture.clean', `${quote(process.execPath)} ${quote(script)}`);
+  git('config', 'filter.fixture.required', 'true');
+  fs.writeFileSync(path.join(f.root, '.gitattributes'), 'code.txt filter=fixture\n');
+  // Equal-sized content forces status to check bytes instead of only file size.
+  const file = path.join(f.root, 'code.txt'); fs.writeFileSync(file, 'modified\n');
+  const changed = new Date(Date.now() + 2000); fs.utimesSync(file, changed, changed);
+  const context = await f.bridge.call('project_context', { project: 'sample' }, ['bridge.read']);
+  assert.equal(context.project, 'sample');
+  assert.equal(fs.existsSync(marker), false);
+});
 test('cancellation stops owned descendants after their immediate parent exits', { skip: process.platform === 'win32' }, async t => {
   const f = fixture(t);
   const code = "const p=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});process.stdout.write(String(p.pid)+'\\n',()=>process.exit(0));";

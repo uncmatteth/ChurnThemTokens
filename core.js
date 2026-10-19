@@ -211,7 +211,7 @@ class DirectBridge {
       let instructions = null;
       try { instructions = this.readBytes(a.project, 'AGENTS.md').toString('utf8').slice(0, 32000); } catch (e) { if (e.code !== 'ENOENT') throw e; }
       let git;
-      try { git = await this.git(a.project, ['status', '--short', '--branch']); } catch { git = { error: 'Not a usable Git repository' }; }
+      try { git = await this.git(a.project, ['status', '--short', '--branch'], true); } catch { git = { error: 'Git status unavailable' }; }
       return { instance_id: this.id, project: a.project, cwd: this.project(a.project), instructions, git };
     });
     add('file_list', 'List a project directory without following links or exposing credential files.', obj({ ...f, limit: num(1, 500) }, ['project']), 'read', true, a => {

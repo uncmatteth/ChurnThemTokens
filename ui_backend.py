@@ -202,8 +202,14 @@ class Backend:
         elif op == "type":
             if not a["text"].isascii():
                 raise ValueError("Desktop typing supports ASCII; use browser fill for Unicode. Clipboard contents are not read or replaced.")
-            # Keep intentional per-character delays below five seconds even
-            # for the largest text accepted by the 45-second helper request.
+            if sys.platform == "darwin":
+                # macOS adds delays for key-down/up and shift events. Refuse
+                # oversized input before typing; leave room in the 45s request.
+                per_char = 0.01 + 4 * max(0.0, float(gui.DARWIN_CATCH_UP_TIME))
+                limit = max(0, int((20 - max(0.0, float(gui.PAUSE))) / per_char))
+                if len(a["text"]) > limit:
+                    raise ValueError(f"Split macOS typing into chunks of at most {limit} ASCII characters, or use browser fill. No text was typed.")
+            # Cap the additional typing delay at five seconds.
             gui.write(a["text"], interval=min(0.01, 5 / max(1, len(a["text"]))))
         else:
             raise ValueError("Unsupported desktop operation")
