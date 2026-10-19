@@ -33,11 +33,11 @@ for (const composerType of ['textarea', 'contenteditable']) test(`real Chrome ${
         check(!(await ask({kind:'bridge-probe'})).proModel,'Sol was accepted as Pro');
         document.querySelector('#model').textContent='GPT Pro';
         setDraft('preserve this draft');
-        const refused=await ask({kind:'bridge-start',run:'fixture',prompt:'safe prompt'});
+        const refused=await ask({kind:'bridge-start',run:'fixture',path:location.pathname,prompt:'safe prompt'});
         check(!!refused.error,'Existing draft was accepted');
         check(getDraft()==='preserve this draft','Draft was overwritten');
         setDraft('');
-        check((await ask({kind:'bridge-start',run:'fixture',prompt:'safe prompt'})).started,'Initial prompt was not sent');
+        check((await ask({kind:'bridge-start',run:'fixture',path:location.pathname,prompt:'safe prompt'})).started,'Initial prompt was not sent');
         const reply=document.createElement('div'); reply.dataset.messageAuthorRole='assistant';
         const pre=document.createElement('pre'),code=document.createElement('code');code.className='language-chatgpt-local-bridge';code.textContent='{"type":"tool"}';pre.append(code);reply.append(pre);document.querySelector('#replies').append(reply);
         await new Promise(resolve=>setTimeout(resolve,1100));
@@ -109,6 +109,53 @@ test('real Chrome popup fixture: simple setup, explicit action consent and usefu
   if (process.env.CHURN_POPUP_SCREENSHOT) args.push('--screenshot=' + process.env.CHURN_POPUP_SCREENSHOT);
   args.push(pathToFileURL(fixture).href);
   const result = spawnSync(process.env.BRIDGEBRAIN_RELAY_CHROME, args, { encoding: 'utf8', timeout: 25000, maxBuffer: 2 * 1024 * 1024 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /id="result">PASS<\/pre>/, result.stdout);
+});
+
+test('real Chrome composer fixture: stop, navigation and model changes cancel pending sends', { skip: !process.env.BRIDGEBRAIN_RELAY_CHROME }, t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'churn-send-guards-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const fixture = path.join(directory, 'fixture.html');
+  const content = fs.readFileSync(path.resolve(__dirname, '../browser-relay/content.js'), 'utf8');
+  fs.writeFileSync(fixture, `<!doctype html><header><button id="model" data-testid="model-switcher-dropdown-button">GPT Pro</button></header><textarea id="prompt-textarea"></textarea><button id="send" data-testid="send-button">Send</button><main id="replies"></main><pre id="result">PENDING</pre>
+  <script>
+    let listener, pendingResult;const sent=[],errors=[];window.fixtureRoute={pathname:'/c/original'};
+    window.chrome.runtime={id:'fixture',onMessage:{addListener:fn=>listener=fn},sendMessage:async message=>{
+      if(message.kind==='bridge-page-error'){errors.push(message.error);return {ok:true};}
+      return new Promise(resolve=>pendingResult=resolve);
+    }};
+    document.querySelector('#send').onclick=()=>{const composer=document.querySelector('#prompt-textarea');sent.push(composer.value);composer.value='';};
+  </script><script>(function(location){${content}\n})(window.fixtureRoute);</script><script>
+    const ask=message=>new Promise(resolve=>listener(message,{id:'fixture'},resolve));
+    const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+    const check=(condition,message)=>{if(!condition)throw new Error(message);};
+    const button=document.querySelector('#send'),composer=document.querySelector('#prompt-textarea'),model=document.querySelector('#model');
+    (async()=>{
+      for(const action of ['stop','navigate','model']){
+        fixtureRoute.pathname='/c/original';model.textContent='GPT Pro';composer.value='';button.disabled=true;
+        const pending=ask({kind:'bridge-start',run:action,path:'/c/original',prompt:'do not send after '+action});
+        await wait(30);
+        if(action==='stop')await ask({kind:'bridge-stop'});
+        if(action==='navigate')fixtureRoute.pathname='/c/other';
+        if(action==='model')model.textContent='Sol';
+        button.disabled=false;
+        check(!!(await pending).error,'Pending send survived '+action);
+        await wait(150);check(sent.length===0,'A message was sent after '+action);
+      }
+      fixtureRoute.pathname='/c/original';model.textContent='GPT Pro';composer.value='';
+      const wrong=await ask({kind:'bridge-start',run:'wrong',path:'/c/other',prompt:'private prompt'});
+      check(!!wrong.error && composer.value==='','A task was inserted into an unexpected conversation');
+      check((await ask({kind:'bridge-start',run:'late-result',path:'/c/original',prompt:'initial task'})).started,'Could not start result test');
+      const reply=document.createElement('div');reply.dataset.messageAuthorRole='assistant';
+      const pre=document.createElement('pre'),code=document.createElement('code');code.className='language-chatgpt-local-bridge';code.textContent='{"type":"tool"}';pre.append(code);reply.append(pre);document.querySelector('#replies').append(reply);
+      await wait(900);check(!!pendingResult,'Local action was not requested');
+      fixtureRoute.pathname='/c/other';pendingResult({ok:true,value:{run:'late-result',sequence:2,result:{content:[{type:'text',text:'private local result'}]}}});
+      await wait(150);check(sent.length===1 && !composer.value.includes('private local result'),'Local result crossed into another conversation');
+      document.querySelector('#result').textContent='PASS';
+    })().catch(error=>document.querySelector('#result').textContent='FAIL: '+error.message);
+  </script>`);
+  const result = spawnSync(process.env.BRIDGEBRAIN_RELAY_CHROME, ['--headless', '--disable-gpu', '--disable-background-networking', '--disable-component-update', '--no-first-run', '--no-default-browser-check', '--user-data-dir=' + path.join(directory, 'isolated-profile'), '--virtual-time-budget=6000', '--dump-dom', pathToFileURL(fixture).href], { encoding: 'utf8', timeout: 25000, maxBuffer: 2 * 1024 * 1024 });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /id="result">PASS<\/pre>/, result.stdout);
 });

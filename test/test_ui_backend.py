@@ -36,6 +36,12 @@ class DesktopValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.backend.desktop({"operation": "type", "text": "café"})
         self.gui.write.assert_not_called()
+    def test_long_ascii_typing_fits_the_helper_time_budget(self):
+        text = "a" * 16384
+        self.backend.desktop({"operation": "type", "text": text})
+        args, kwargs = self.gui.write.call_args
+        self.assertEqual(args[0], text)
+        self.assertLessEqual(len(text) * kwargs["interval"], 5)
     def test_wayland_fails_explicitly(self):
         with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
             with self.assertRaisesRegex(ValueError, "Wayland"):

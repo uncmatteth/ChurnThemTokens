@@ -9,7 +9,7 @@ const protocol = require('../browser-relay/protocol');
 function worker() {
   let listener, receiver, disconnect;
   const calls = [], posts = [];
-  const context = { pro: true, jobs: [] };
+  const context = { pro: true, jobs: [], url: 'https://chatgpt.com/c/fixture' };
   const tools = ['bridge_status', 'project_list', 'job_list', 'file_read'].map(name => ({ name, inputSchema: { type: 'object' } }));
   const value = name => name === 'bridge_status' ? { hostname: 'test-machine', permissions: { write: false } } : name === 'project_list' ? [{ id: 'sample', root: '/fixture' }] : name === 'job_list' ? context.jobs : { content: 'receipt' };
   const port = {
@@ -25,7 +25,7 @@ function worker() {
   const chrome = {
     runtime: { getURL: name => 'chrome-extension://fixture/' + name, connectNative: () => port, onMessage: { addListener: fn => { listener = fn; } } },
     tabs: {
-      get: async () => ({ id: 7, url: 'https://chatgpt.com/c/fixture' }),
+      get: async () => ({ id: 7, url: context.url }),
       query: async () => [{ id: 7 }],
       sendMessage: async (id, message) => {
         posts.push(message);
@@ -49,6 +49,21 @@ test('relay requires explicit session consent and sends no task without it', asy
   const w = worker(); assert.equal((await w.send({ kind: 'connect' })).ok, true);
   const refused = await w.send({ kind: 'start', task: 'read code', consent: false });
   assert.equal(refused.ok, false); assert.equal(w.posts.some(m => m.kind === 'bridge-start'), false);
+  await w.send({ kind: 'stop' });
+});
+test('changing conversations while idle blocks the initial task and private prompt', async () => {
+  const w = worker(); await w.send({ kind: 'connect' });
+  w.context.url = 'https://chatgpt.com/c/another-conversation';
+  const result = await w.send({ kind: 'start', task: 'read code', consent: true });
+  assert.equal(result.ok, false); assert.equal(w.posts.some(message => message.kind === 'bridge-start'), false);
+  await w.send({ kind: 'stop' });
+});
+test('the request limit still permits a verified completion packet', async () => {
+  const w = worker(); await w.send({ kind: 'connect' }); await w.send({ kind: 'start', task: 'read code', consent: true });
+  for (let sequence = 1; sequence <= 64; sequence++) assert.equal((await w.send({ kind: 'bridge-packet', text: JSON.stringify(w.packet(sequence)) }, w.content)).ok, true);
+  assert.equal((await w.send({ kind: 'bridge-packet', text: JSON.stringify(w.packet(65)) }, w.content)).ok, false);
+  const result = await w.send({ kind: 'bridge-packet', text: JSON.stringify(w.packet(65, { type: 'done', message: 'Observed completion', name: undefined, arguments: undefined })) }, w.content);
+  assert.equal(result.ok, true); assert.equal(result.value.done, true);
   await w.send({ kind: 'stop' });
 });
 test('relay binds actions to the selected tab, run and ordered sequence', async () => {

@@ -28,6 +28,7 @@ function atomic(file, data, mode = 0o600) {
   const tmp = `${file}.${uuid()}.tmp`;
   try {
     fs.writeFileSync(tmp, data, { flag: 'wx', mode });
+    fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, file);
   } finally { try { fs.unlinkSync(tmp); } catch {} }
 }
@@ -158,10 +159,11 @@ class DirectBridge {
     const id = uuid();
     const base = path.join(this.state, 'backups', id);
     fs.writeFileSync(`${base}.data`, bytes, { mode: 0o600, flag: 'wx' });
-    jsonWrite(`${base}.json`, { project, path: relative, sha256: hash(bytes), at: new Date().toISOString() });
+    const mode = fs.statSync(this.resolve(project, relative)).mode & 0o777;
+    jsonWrite(`${base}.json`, { project, path: relative, sha256: hash(bytes), mode, at: new Date().toISOString() });
     return id;
   }
-  writeFile(a) {
+  writeFile(a, restoredMode) {
     return this.locked(`file:${a.project}:${a.path}`, () => {
       const file = this.resolve(a.project, a.path);
       let prior = null;
@@ -173,7 +175,7 @@ class DirectBridge {
       if (bytes.length > LIMIT) fail('File is larger than 2 MiB');
       if (!fs.existsSync(path.dirname(file))) fail('Parent directory is missing. Use file_mkdir first.');
       const backupId = prior === null ? null : this.backup(a.project, a.path, prior);
-      const mode = prior === null ? 0o600 : fs.statSync(file).mode & 0o777;
+      const mode = restoredMode ?? (prior === null ? 0o600 : fs.statSync(file).mode & 0o777);
       atomic(file, bytes, mode);
       return { project: a.project, path: a.path, bytes: bytes.length, sha256: hash(bytes), backup_id: backupId };
     });
@@ -280,7 +282,8 @@ class DirectBridge {
       const base = path.join(this.state, 'backups', a.backup_id);
       const info = jsonRead(`${base}.json`, null); if (!info) fail('Unknown backup');
       const content = fs.readFileSync(`${base}.data`).toString('base64');
-      return this.writeFile({ project: info.project, path: info.path, content, expected_sha256: a.expected_sha256, encoding: 'base64' });
+      if (info.mode !== undefined && (!Number.isInteger(info.mode) || info.mode < 0 || info.mode > 0o777)) fail('Invalid backup permissions');
+      return this.writeFile({ project: info.project, path: info.path, content, expected_sha256: a.expected_sha256, encoding: 'base64' }, info.mode);
     });
     add('image_view', 'Return an existing PNG, JPEG or WebP project image as an MCP image, without a model/API request.', obj(f, ['project', 'path']), 'read', true, a => {
       const bytes = this.readBytes(a.project, a.path);
@@ -289,7 +292,11 @@ class DirectBridge {
       return { _image: bytes.toString('base64'), mimeType: mime };
     });
     add('command_start', 'Start a LOCAL command or script, not an AI agent. Requires trusted execution. Returns a tracked job immediately; use job_read for progress. Commands can access the OS user account outside project roots.', obj({ ...p, argv: arr(str(65536), 128), cwd: str(1024), timeout_seconds: num(1, 86400), request_id: str(128), stdin: str(65536) }, ['project', 'argv', 'request_id']), 'exec', false, a => this.startJob(a));
-    add('job_list', 'List tracked bridge jobs, not unrelated system processes.', obj({}), 'read', true, () => fs.readdirSync(path.join(this.state, 'jobs')).filter(n => /^[a-f0-9-]{36}\.json$/.test(n)).map(n => jsonRead(path.join(this.state, 'jobs', n), null)).filter(Boolean).slice(-200));
+    add('job_list', 'List every running bridge job plus the 200 most recent finished jobs, not unrelated system processes.', obj({}), 'read', true, () => {
+      const jobs = fs.readdirSync(path.join(this.state, 'jobs')).filter(n => /^[a-f0-9-]{36}\.json$/.test(n)).map(n => jsonRead(path.join(this.state, 'jobs', n), null)).filter(Boolean).map(job => this.jobs.get(job.id)?.job || job);
+      const newest = (a, b) => (b.finishedAt || b.startedAt || '').localeCompare(a.finishedAt || a.startedAt || '') || a.id.localeCompare(b.id);
+      return [...jobs.filter(job => job.status === 'running').sort(newest), ...jobs.filter(job => job.status !== 'running').sort(newest).slice(0, 200)];
+    });
     add('job_read', 'Read bounded output with a durable byte cursor, exit code and real running/finished status. Does not restart jobs.', obj({ job_id: str(36), offset: num(0, Number.MAX_SAFE_INTEGER), max_bytes: num(1, 262144) }, ['job_id']), 'read', true, a => this.readJob(a));
     add('job_input', 'Write stdin to a live tracked job, optionally closing stdin. Pipe interaction only, not a pseudo-terminal.', obj({ job_id: str(36), text: str(65536), close: bool }, ['job_id', 'text']), 'exec', false, a => {
       const runtime = this.jobs.get(a.job_id); if (!runtime || runtime.job.status !== 'running' || runtime.child.stdin.destroyed) fail('No writable stdin for this job');
@@ -297,9 +304,9 @@ class DirectBridge {
       return { written: Buffer.byteLength(a.text), stdin_closed: !!a.close };
     });
     add('job_cancel', 'Stop only the named process tree created by this bridge. Never targets arbitrary PIDs.', obj({ job_id: str(36) }, ['job_id']), 'exec', false, a => this.stopJob(a.job_id, 'cancelled'));
-    add('git_read', 'Inspect Git status/diff/log/branches/worktrees without external diff drivers, textconv or optional index writes.', obj({ ...p, operation: enumeration('status', 'diff', 'staged_diff', 'log', 'branches', 'worktrees') }, ['project', 'operation']), 'read', true, a => {
+    add('git_read', 'Inspect Git without external diff drivers, textconv, content-filter programs or optional index writes. A diff requiring configured conversion fails rather than comparing unconverted bytes.', obj({ ...p, operation: enumeration('status', 'diff', 'staged_diff', 'log', 'branches', 'worktrees') }, ['project', 'operation']), 'read', true, a => {
       const commands = { status: ['status', '--short', '--branch'], diff: ['diff', '--no-ext-diff', '--no-textconv'], staged_diff: ['diff', '--cached', '--no-ext-diff', '--no-textconv'], log: ['log', '-20', '--oneline'], branches: ['branch', '--list'], worktrees: ['worktree', 'list', '--porcelain'] };
-      return this.git(a.project, commands[a.operation]);
+      return this.git(a.project, commands[a.operation], true);
     });
     add('git_branch', 'Create and switch to a new branch only with a clean working tree. No force/reset.', obj({ ...p, branch: str(128) }, ['project', 'branch']), 'exec', false, a => this.locked(`git:${a.project}`, async () => {
       this.checkRef(a.branch); await this.requireClean(a.project); return this.git(a.project, ['switch', '-c', a.branch]);
@@ -348,8 +355,19 @@ class DirectBridge {
     add('desktop', 'Use the optional local GUI backend for screen/mouse/keyboard. Requires a visible session and OS permissions. Linux Wayland is not supported by this backend. Does not grant OpenAI native Computer Use.', obj({ operation: enumeration('status', 'screenshot', 'move', 'click', 'double_click', 'drag', 'scroll', 'press', 'hotkey', 'type'), x: num(0, 65535), y: num(0, 65535), amount: num(-100, 100), key: str(64), keys: arr(str(64), 8), text: str(16384), button: enumeration('left', 'middle', 'right') }, ['operation']), 'desktop', false, a => this.ui({ ...a, kind: 'desktop' }));
   }
   checkRef(ref) { if (!/^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$/.test(ref) || ref.includes('..') || ref.endsWith('/') || ref.includes('//')) fail('Invalid Git reference'); }
-  async git(project, args) {
-    const result = await execFileAsync('git', ['--no-pager', '--literal-pathspecs', '-c', `core.hooksPath=${path.join(this.state, 'empty-hooks')}`, '-c', 'core.fsmonitor=false', '-C', this.project(project), ...args], { timeout: 30000, maxBuffer: LIMIT, env: { ...cleanEnv(), GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' }, windowsHide: true });
+  async git(project, args, readOnly = false) {
+    const common = ['--no-pager', '--literal-pathspecs', '-c', `core.hooksPath=${path.join(this.state, 'empty-hooks')}`, '-c', 'core.fsmonitor=false', '-C', this.project(project)];
+    const options = { timeout: 30000, maxBuffer: LIMIT, env: { ...cleanEnv(), GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' }, windowsHide: true };
+    const filters = [];
+    if (readOnly && (args[0] === 'status' || (args[0] === 'diff' && !args.includes('--cached')))) {
+      let keys = '';
+      try { keys = (await execFileAsync('git', [...common, 'config', '--null', '--name-only', '--get-regexp', '^filter\\..*\\.(clean|process)$'], options)).stdout; }
+      catch (error) { if (error.code !== 1) throw error; }
+      // Refuse a conversion when Git actually needs it. Do not run a configured
+      // program or silently compare unconverted bytes as if conversion succeeded.
+      for (const prefix of new Set(keys.split('\0').filter(Boolean).map(key => key.slice(0, key.lastIndexOf('.'))))) filters.push('-c', `${prefix}.clean=`, '-c', `${prefix}.process=`, '-c', `${prefix}.required=true`);
+    }
+    const result = await execFileAsync('git', [...common, ...filters, ...args], options);
     return { stdout: result.stdout, stderr: result.stderr };
   }
   async requireClean(project) { if ((await this.git(project, ['status', '--porcelain', '--untracked-files=all'])).stdout.trim()) fail('Working tree is not clean; nothing was removed or overwritten'); }
@@ -413,8 +431,9 @@ class DirectBridge {
     if (runtime.job.terminationRequested) return { ...runtime.job };
     runtime.job.terminationRequested = reason;
     const kill = force => {
-      if (!runtime.child.pid || runtime.child.exitCode !== null) return;
+      if (!runtime.child.pid) return;
       if (process.platform === 'win32') {
+        if (runtime.child.exitCode !== null) return;
         const killer = spawn('taskkill.exe', ['/PID', String(runtime.child.pid), '/T', ...(force ? ['/F'] : [])], { windowsHide: true, stdio: 'ignore', env: cleanEnv() });
         killer.on('error', () => runtime.child.kill());
       } else { try { process.kill(-runtime.child.pid, force ? 'SIGKILL' : 'SIGTERM'); } catch {} }

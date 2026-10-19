@@ -105,6 +105,12 @@ function approveOAuth(bridge, id) {
   jsonWrite(path.join(bridge.state, `approval-${id}.json`), { approved: true, expires: pending.expires });
   return { client_id: pending.client, redirect_uri: pending.redirect, scopes: pending.scopes };
 }
+function approvalCommand(bridge, id) {
+  const args = [process.execPath, path.join(__dirname, 'cli.js'), 'approve', id];
+  if (bridge.configFile) args.push('--config', path.resolve(bridge.configFile));
+  const quote = process.platform === 'win32' ? value => "'" + value.replaceAll("'", "''") + "'" : value => "'" + value.replaceAll("'", "'\\''") + "'";
+  return (process.platform === 'win32' ? '& ' : '') + args.map(quote).join(' ');
+}
 async function oauthRoute(bridge, req, res, url, origin) {
   const resource = `${origin}/mcp`;
   const metadata = `${origin}/.well-known/oauth-protected-resource`;
@@ -132,7 +138,7 @@ async function oauthRoute(bridge, req, res, url, origin) {
     const id = random();
     store.pending[id] = { client: p.get('client_id'), redirect: p.get('redirect_uri'), challenge: p.get('code_challenge'), resource, scopes: requested, state: p.get('state') || '', expires: now() + 300 };
     saveOAuth(bridge, store);
-    html(res, `<p>This grants access to your <b>local computer</b>, not to a ChatGPT account. No ChatGPT password or cookies are requested.</p><p>Requested permissions: ${htmlEscape(requested.join(', '))}.</p><p>Only approve a connection you just started. On the target computer, review and run:</p><pre>node cli.js approve ${htmlEscape(id)}</pre><p>Return here after local approval. This request expires in five minutes.</p>`, `/oauth/finish?id=${id}`); return true;
+    html(res, `<p>This grants access to your <b>local computer</b>, not to a ChatGPT account. No ChatGPT password or cookies are requested.</p><p>Requested permissions: ${htmlEscape(requested.join(', '))}.</p><p>Only approve a connection you just started. On the target computer, review and run${process.platform === 'win32' ? ' in PowerShell' : ''}:</p><pre data-approval-id="${htmlEscape(id)}">${htmlEscape(approvalCommand(bridge, id))}</pre><p>Return here after local approval. This request expires in five minutes.</p>`, `/oauth/finish?id=${id}`); return true;
   }
   if (req.method === 'GET' && url.pathname === '/oauth/finish') {
     const id = url.searchParams.get('id') || '';
@@ -141,7 +147,7 @@ async function oauthRoute(bridge, req, res, url, origin) {
     if (!pending) { html(res, '<p>Request expired or was already delivered. Start connecting again in ChatGPT.</p>'); return true; }
     const approvedFile = path.join(bridge.state, `approval-${id}.json`);
     const approved = jsonRead(approvedFile, null);
-    if (!approved?.approved || approved.expires <= now()) { html(res, `<p>Waiting for approval on the target computer.</p><pre>node cli.js approve ${htmlEscape(id)}</pre>`, `/oauth/finish?id=${id}`); return true; }
+    if (!approved?.approved || approved.expires <= now()) { html(res, `<p>Waiting for approval on the target computer${process.platform === 'win32' ? ' in PowerShell' : ''}.</p><pre data-approval-id="${htmlEscape(id)}">${htmlEscape(approvalCommand(bridge, id))}</pre>`, `/oauth/finish?id=${id}`); return true; }
     fs.unlinkSync(approvedFile);
     const code = random(); store.codes[hash(code)] = { ...pending, expires: now() + 60 }; delete store.pending[id]; saveOAuth(bridge, store);
     const redirect = new URL(pending.redirect); redirect.searchParams.set('code', code); redirect.searchParams.set('state', pending.state);

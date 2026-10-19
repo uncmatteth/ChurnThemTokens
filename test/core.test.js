@@ -130,6 +130,61 @@ test('failed executable is reported as failure, not successful work', async t =>
   const job = await call('command_start', { project: 'sample', argv: ['bridgebrain-no-such-executable'], request_id: 'missing' });
   const result = await finish(bridge, job.id); assert.equal(result.status, 'failed'); assert.match(result.output, /ENOENT/);
 });
+test('read-only Git inspection never executes configured content filters', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t, { exec: false }), git = initGit(f.root);
+  const marker = path.join(f.temp, 'filter-ran'), script = path.join(f.temp, 'filter.js');
+  fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(marker)},'ran');process.stdin.pipe(process.stdout);`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  git('config', 'filter.fixture.clean', `${quote(process.execPath)} ${quote(script)}`);
+  git('config', 'filter.fixture.required', 'true');
+  fs.writeFileSync(path.join(f.root, '.gitattributes'), 'code.txt filter=fixture\n');
+  fs.writeFileSync(path.join(f.root, 'code.txt'), 'changed content requiring conversion\n');
+  await assert.rejects(f.call('git_read', { project: 'sample', operation: 'diff' }), /filter|conversion/i);
+  assert.equal(fs.existsSync(marker), false);
+  await f.bridge.call('git_read', { project: 'sample', operation: 'status' }, ['bridge.read']).catch(error => assert.match(error.message, /filter|conversion/i));
+  assert.equal(fs.existsSync(marker), false);
+  assert.match((await f.call('git_read', { project: 'sample', operation: 'log' })).stdout, /fixture/);
+});
+test('cancellation stops owned descendants after their immediate parent exits', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t);
+  const code = "const p=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});process.stdout.write(String(p.pid)+'\\n',()=>process.exit(0));";
+  const started = await f.call('command_start', { project: 'sample', argv: [process.execPath, '-e', code], request_id: 'descendant-cancel' });
+  const runtime = f.bridge.jobs.get(started.id);
+  try {
+    const deadline = Date.now() + 2000;
+    while (runtime.child.exitCode === null && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(runtime.child.exitCode, 0); assert.equal(f.bridge.readJob({ job_id: started.id }).status, 'running');
+    await f.call('job_cancel', { job_id: started.id });
+    assert.equal((await finish(f.bridge, started.id, 2200)).status, 'cancelled');
+  } finally {
+    try { process.kill(-runtime.child.pid, 'SIGKILL'); } catch {}
+    await finish(f.bridge, started.id).catch(() => {});
+  }
+});
+test('job history limits never hide a running job and use actual finish order', async t => {
+  const f = fixture(t), folder = path.join(f.bridge.state, 'jobs');
+  for (let index = 0; index < 201; index++) {
+    const id = `ffffffff-ffff-4fff-8fff-${String(index).padStart(12, '0')}`;
+    jsonWrite(path.join(folder, id + '.json'), { id, status: 'completed', startedAt: new Date(index * 1000).toISOString(), finishedAt: new Date(index * 1000 + 1).toISOString() });
+  }
+  const id = '00000000-0000-4000-8000-000000000000';
+  jsonWrite(path.join(folder, id + '.json'), { id, status: 'running', startedAt: new Date().toISOString() });
+  const jobs = await f.call('job_list');
+  assert.ok(jobs.some(job => job.id === id));
+  assert.equal(jobs.filter(job => job.status !== 'running').length, 200);
+  assert.equal(jobs.filter(job => job.status !== 'running')[0].id, 'ffffffff-ffff-4fff-8fff-000000000200');
+});
+test('restoring a deleted executable restores its permissions and behavior', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t), file = path.join(f.root, 'run-me');
+  const content = '#!/bin/sh\nprintf restored'; fs.writeFileSync(file, content, { mode: 0o755 });
+  const previousMask = process.umask(0o077);
+  try {
+    const deleted = await f.call('file_delete', { project: 'sample', path: 'run-me', expected_sha256: hash(content) });
+    await f.call('file_restore', { backup_id: deleted.backup_id, expected_sha256: '' });
+    assert.equal(fs.statSync(file).mode & 0o777, 0o755);
+    assert.equal(require('node:child_process').execFileSync(file, { encoding: 'utf8' }), 'restored');
+  } finally { process.umask(previousMask); }
+});
 test('Git inspection, permanent worktree creation, isolation and clean removal', async t => {
   const { root, bridge, call } = fixture(t); initGit(root);
   const tree = await call('worktree_create', { project: 'sample', name: 'worker', branch: 'worker-feature' });

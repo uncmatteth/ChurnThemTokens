@@ -21,15 +21,22 @@ async function httpFixture(t) {
   const request = (url, options = {}) => fetch(base + url, { redirect: 'manual', ...options });
   const mcp = (message, token = f.config.localBearerToken, headers = {}) => request('/mcp', { method: 'POST', headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: JSON.stringify(message) });
   const form = data => request('/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(data) });
-  async function pairing(scope = 'bridge.read bridge.write bridge.exec') {
+  async function pairing(scope = 'bridge.read bridge.write bridge.exec', approveUsingCLI = false) {
     const reg = await request('/register', { method: 'POST', body: JSON.stringify({ redirect_uris: [redirect], token_endpoint_auth_method: 'none' }) });
     assert.equal(reg.status, 201); const client = (await reg.json()).client_id;
     const verifier = crypto.randomBytes(48).toString('base64url');
     const query = new URLSearchParams({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), resource: origin + '/mcp', scope, state: 'csrf-test-state' });
     const auth = await request('/authorize?' + query); assert.equal(auth.status, 200);
-    const page = await auth.text(); const id = /node cli\.js approve ([A-Za-z0-9_-]{43})/.exec(page)[1];
-    assert.match(page, /local computer/); assert.equal((await request('/oauth/finish?id=' + id)).status, 200);
-    approveOAuth(f.bridge, id);
+    const page = await auth.text(); const id = /data-approval-id="([A-Za-z0-9_-]{43})"/.exec(page)[1];
+    assert.match(page, /local computer/); assert.match(page, /--config/);
+    const waiting = await request('/oauth/finish?id=' + id); assert.equal(waiting.status, 200);
+    assert.match(await waiting.text(), /--config/);
+    if (approveUsingCLI) {
+      const command = /<pre[^>]*>([\s\S]*?)<\/pre>/.exec(page)[1].replaceAll('&#39;', "'").replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+      const result = require('node:child_process').spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8', timeout: 10000, cwd: f.temp });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.includes(f.config.localBearerToken), false);
+    } else approveOAuth(f.bridge, id);
     const finish = await request('/oauth/finish?id=' + id); assert.equal(finish.status, 302);
     const callback = new URL(finish.headers.get('location')); assert.equal(callback.searchParams.get('state'), 'csrf-test-state');
     const exchange = { grant_type: 'authorization_code', code: callback.searchParams.get('code'), code_verifier: verifier, client_id: client, redirect_uri: redirect, resource: origin + '/mcp' };
@@ -37,6 +44,11 @@ async function httpFixture(t) {
   }
   return { ...f, server, request, mcp, form, pairing };
 }
+test('displayed OAuth approval command selects the server instance from another directory', { skip: process.platform === 'win32' }, async t => {
+  const f = await httpFixture(t);
+  const paired = await f.pairing('bridge.read', true);
+  assert.equal((await f.form(paired.exchange)).status, 200);
+});
 test('RPC validation, negotiation and notifications cannot execute writes', async t => {
   const f = fixture(t);
   assert.equal((await dispatch(f.bridge, {})).error.code, -32600);

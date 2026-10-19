@@ -50,7 +50,7 @@ async function connect(tabId) {
       const error = chrome.runtime.lastError?.message;
       if (session?.port === port) { close(); if (error) console.error('Native bridge disconnected:', error); }
     });
-    await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'ChurnThemTokens', version: '0.1.0' } });
+    await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'ChurnThemTokens', version: '0.1.1' } });
     session.identity = textValue(await tool('bridge_status'));
     session.projects = textValue(await tool('project_list'));
     session.tools = (await rpc('tools/list')).tools;
@@ -62,10 +62,13 @@ async function start(task, consent) {
   if (!session || session.running) throw new Error('Connect an idle Pro chat first.');
   if (consent !== true || typeof task !== 'string' || !task.trim() || task.length > 16000) throw new Error('Enter a task and authorize local actions for this chat.');
   const current = session;
+  const tab = await chrome.tabs.get(current.tabId);
+  if (session !== current || current.running) throw new Error('The bridge session changed. Reconnect before starting a task.');
+  if (LocalBridgeProtocol.chatUrl(tab.url).pathname !== current.path) throw new Error('The selected conversation changed. Reconnect the intended Pro chat before starting a task.');
   current.run = crypto.randomUUID(); current.sequence = 1; current.steps = 0; current.error = null; current.completion = null;
   current.running = true;
   try {
-    const response = await chrome.tabs.sendMessage(current.tabId, { kind: 'bridge-start', run: current.run, prompt: LocalBridgeProtocol.prompt(current.run, current.tools, task, current.identity, current.projects) });
+    const response = await chrome.tabs.sendMessage(current.tabId, { kind: 'bridge-start', run: current.run, path: current.path, prompt: LocalBridgeProtocol.prompt(current.run, current.tools, task, current.identity, current.projects) });
     if (!response?.started) throw new Error(response?.error || 'ChatGPT did not accept the initial bridge message.');
     return summary();
   } catch (error) { current.running = false; throw error; }
@@ -78,7 +81,7 @@ async function receive(message, sender) {
     if (current.path === '/' && current.sequence === 1 && current.steps === 0 && /^\/c\/[A-Za-z0-9-]+$/.test(page.pathname)) current.path = page.pathname;
     else throw new Error('The selected conversation changed. Reconnect it before requesting local actions.');
   }
-  if (current.busy || current.steps >= 64) throw new Error('Bridge is busy or the run reached its 64-request limit.');
+  if (current.busy) throw new Error('Bridge is busy.');
   const probe = await chrome.tabs.sendMessage(current.tabId, { kind: 'bridge-probe' });
   if (!probe?.proModel) throw new Error('Pro selection is no longer visible. No local action was executed.');
   if (session !== current || !current.running || current.busy) throw new Error('Bridge session changed before the action.');
@@ -91,6 +94,7 @@ async function receive(message, sender) {
       current.running = false; current.completion = request.message;
       return { done: true, message: request.message };
     }
+    if (current.steps >= 64) throw new Error('This run reached its 64-request limit. Inspect results and finish before starting another task.');
     const result = await tool(request.name, request.arguments);
     if (session !== current || !current.running) throw new Error('Bridge stopped while the local action was running. Inspect the outcome before retrying.');
     current.steps++; current.sequence++;

@@ -202,7 +202,9 @@ class Backend:
         elif op == "type":
             if not a["text"].isascii():
                 raise ValueError("Desktop typing supports ASCII; use browser fill for Unicode. Clipboard contents are not read or replaced.")
-            gui.write(a["text"], interval=0.01)
+            # Keep intentional per-character delays below five seconds even
+            # for the largest text accepted by the 45-second helper request.
+            gui.write(a["text"], interval=min(0.01, 5 / max(1, len(a["text"]))))
         else:
             raise ValueError("Unsupported desktop operation")
         return {"operation": op, "completed": True}
