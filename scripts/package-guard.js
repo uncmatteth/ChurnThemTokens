@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const top = new Set(['.gitignore', 'AGENTS.md', 'README.md', 'TESTING.md', 'SECURITY.md', 'LICENSE', 'package.json', 'core.js', 'transport.js', 'cli.js', 'native.js', 'install.js', 'ui_backend.py', 'requirements-ui.txt']);
-const allowed = name => top.has(name) || /^browser-relay\/(?:manifest\.json|(?:worker|content|protocol|popup|setup)\.js|popup\.(?:html|css))$/.test(name) || /^test\/[a-z0-9_.-]+\.(?:js|py)$/.test(name) || name === 'scripts/package-guard.js';
+const allowed = name => top.has(name) || /^browser-relay\/(?:manifest\.json|(?:worker|content|protocol|popup|setup)\.js|popup\.(?:html|css))$/.test(name) || /^test\/[a-z0-9_.-]+\.(?:js|py)$/.test(name) || name === 'scripts/package-guard.js' || ['skills/churn-them-tokens/SKILL.md', 'skills/churn-them-tokens/agents/openai.yaml'].includes(name);
 const blockers = [];
 function walk(directory, prefix = '') {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -12,7 +12,7 @@ function walk(directory, prefix = '') {
     const name = prefix + entry.name, absolute = path.join(directory, entry.name);
     if (entry.isSymbolicLink()) { blockers.push(name + ': symlink'); continue; }
     if (entry.isDirectory()) {
-      if (!['browser-relay', 'test', 'scripts'].includes(name)) blockers.push(name + ': unexpected directory');
+      if (!['browser-relay', 'test', 'scripts', 'skills', 'skills/churn-them-tokens', 'skills/churn-them-tokens/agents'].includes(name)) blockers.push(name + ': unexpected directory');
       else walk(absolute, name + '/');
       continue;
     }

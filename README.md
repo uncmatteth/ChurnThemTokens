@@ -28,10 +28,25 @@ Tell the coding agent on your computer:
 > Pro chat, and verify it with the quick check. Only ask me for a specific browser
 > or OS confirmation that you cannot perform yourself.
 
+The [setup skill](skills/churn-them-tokens) is included. To install it in Codex,
+tell your agent:
+
+> Install the skill from https://github.com/uncmatteth/ChurnThemTokens/tree/main/skills/churn-them-tokens.
+
 Your agent should do the setup. If Chrome or the OS needs your approval, it
 should ask for that specific click.
 
+It uses your own ChatGPT login. If you're signed out, the agent opens sign-in
+and you enter your password/passkey and MFA. Your login stays in the browser.
+
 ## Use it when you need it
+
+Once the skill is installed, call it with a task:
+
+> Use $churn-them-tokens to read this project's README and tell me what's unfinished.
+
+It only runs when you ask. The agent connects the Pro chat, checks it, submits
+the task and disconnects afterward. The full live flow still needs verification.
 
 Connect for a task, then disconnect when you're done. After setup, the extension
 has these controls:
@@ -41,8 +56,7 @@ has these controls:
 3. Check the computer and folders shown, enter the task, and click **Allow tools & run task**.
 4. Click **Disconnect & stop** when you're finished.
 
-You can ask your agent to handle these steps too. The setup skill isn't
-included in this repo yet.
+You can ask your agent to handle these steps too.
 
 ## Tools
 

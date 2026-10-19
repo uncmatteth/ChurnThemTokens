@@ -6,6 +6,10 @@ web chat to local computer tools. It makes no Codex or model API calls.
 ## When the user says install or go
 
 Own the setup. Do not hand the user a developer-mode or terminal walkthrough.
+The portable, explicitly invoked skill is in `skills/churn-them-tokens/`.
+When asked to install the skill in Codex, use the available skill installer
+with that GitHub path. Installing the skill and connecting Pro are separate
+steps; neither proves the other worked.
 
 1. Verify the host, Node.js 18.17+ and the intended existing Chrome session. Read
    this file and README.md. Use an already available local terminal/browser tool.
@@ -28,7 +32,9 @@ Own the setup. Do not hand the user a developer-mode or terminal walkthrough.
    local handshake alone is not a working Pro connection.
 
 Do not ask for another login when an authorized signed-in chat exists. Do not
-start new accounts, copy auth, install Codex, use model APIs, add public tunnels,
+collect credentials. If signed out, open normal ChatGPT sign-in and pause only
+for the person's password/passkey, MFA or explicit consent. Resume navigation
+afterward. Do not start new accounts, copy auth, install Codex, use model APIs, add public tunnels,
 change enterprise policies, restart the user's browser or install services.
 If browser control fails, report its exact error rather than asking the user to
 perform the whole setup. Do not claim unattended setup where consent is needed.

@@ -23,6 +23,7 @@
     "native.js",
     "install.js",
     "scripts/package-guard.js",
+    "skills/churn-them-tokens/",
     "browser-relay/",
     "ui_backend.py",
     "requirements-ui.txt",

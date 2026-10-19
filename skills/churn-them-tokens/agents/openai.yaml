@@ -1,0 +1,6 @@
+interface:
+  display_name: "ChurnThemTokens"
+  short_description: "Call Pro web chat for a local computer task"
+  default_prompt: "Use $churn-them-tokens for this task through my own ChatGPT Pro web login. Handle setup, verify the connection, then disconnect when finished."
+policy:
+  allow_implicit_invocation: false
