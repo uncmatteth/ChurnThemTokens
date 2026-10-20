@@ -44,13 +44,30 @@ function sameSettings(existing, requested) {
 function handshake(plan) {
   return new Promise((resolve, reject) => {
     const child = spawn(plan.wrapper, [`chrome-extension://${plan.extension_id}/`], { stdio: ['pipe', 'pipe', 'pipe'] });
-    const pieces = []; let size = 0, finished = false;
+    const pieces = [], received = new Set(); let size = 0, finished = false, parsed = 0;
     const timer = setTimeout(() => { child.kill(); finish(new Error('Native helper handshake timed out. Inspect the local process before retrying.')); }, 10000);
     function finish(error, value) { if (finished) return; finished = true; clearTimeout(timer); error ? reject(error) : resolve(value); }
     child.on('error', error => finish(error));
     child.stdin.on('error', () => {});
     child.stderr.resume(); // Do not print private diagnostic bytes.
-    child.stdout.on('data', bytes => { size += bytes.length; if (size > 2 * 1024 * 1024) { child.kill(); finish(new Error('Native helper response exceeded its limit.')); } else pieces.push(bytes); });
+    child.stdout.on('data', bytes => {
+      size += bytes.length;
+      if (size > 2 * 1024 * 1024) { child.kill(); finish(new Error('Native helper response exceeded its limit.')); return; }
+      pieces.push(bytes);
+      const buffered = Buffer.concat(pieces);
+      try {
+        while (buffered.length - parsed >= 4) {
+          const length = os.endianness() === 'LE' ? buffered.readUInt32LE(parsed) : buffered.readUInt32BE(parsed);
+          if (!length || length > 1024 * 1024) throw new Error('Invalid native helper frame.');
+          if (buffered.length - parsed < length + 4) break;
+          received.add(JSON.parse(buffered.subarray(parsed + 4, parsed + 4 + length).toString('utf8')).id);
+          parsed += length + 4;
+        }
+        // EOF revokes the native connection. Keep it open until both tool
+        // receipts arrive, then verify the cleanly stopped helper below.
+        if (received.has(1) && received.has(2) && !child.stdin.writableEnded) child.stdin.end();
+      } catch (error) { child.kill(); finish(error); }
+    });
     child.on('close', code => {
       if (finished) return;
       try {
@@ -73,7 +90,7 @@ function handshake(plan) {
         finish(null, { verified: true, hostname: identity.hostname, permissions: identity.permissions, projects, invokes_codex: false, makes_model_api_calls: false });
       } catch (error) { finish(error); }
     });
-    child.stdin.end(Buffer.concat([1, 2].map((id, i) => frame({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: i ? 'project_list' : 'bridge_status', arguments: {} } }))));
+    child.stdin.write(Buffer.concat([1, 2].map((id, i) => frame({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: i ? 'project_list' : 'bridge_status', arguments: {} } }))));
   });
 }
 async function install(options, environment = {}) {

@@ -7,13 +7,14 @@ const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 const { spawnSync } = require('node:child_process');
 
-for (const composerType of ['textarea', 'contenteditable']) test(`real Chrome ${composerType} fixture: Pro selection, preserved drafts and tool-result return`, { skip: !process.env.BRIDGEBRAIN_RELAY_CHROME }, t => {
+for (const composerType of ['textarea', 'contenteditable', 'current-chat']) test(`real Chrome ${composerType} fixture: Pro selection, preserved drafts and tool-result return`, { skip: !process.env.BRIDGEBRAIN_RELAY_CHROME }, t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-relay-ui-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const fixture = path.join(directory, 'fixture.html');
   const source = pathToFileURL(path.resolve(__dirname, '../browser-relay/content.js')).href;
-  fs.writeFileSync(fixture, `<!doctype html><meta charset="utf-8"><header><button data-testid="model-switcher-dropdown-button" id="model">GPT Pro</button><button>Pro</button></header>
-    ${composerType === 'textarea' ? '<textarea id="prompt-textarea"></textarea>' : '<div id="prompt-textarea" contenteditable="true"></div>'}<button data-testid="send-button" id="send">Send</button><main id="replies"></main><pre id="result">PENDING</pre>
+  const currentChat = composerType === 'current-chat';
+  fs.writeFileSync(fixture, `<!doctype html><meta charset="utf-8"><header>${currentChat ? '' : '<button data-testid="model-switcher-dropdown-button" id="model">GPT Pro</button>'}<button>Pro</button></header>
+    <form>${currentChat ? '<button type="button" aria-label="Select ChatGPT model" id="model">Pro</button><div role="textbox" aria-label="Ask ChatGPT" contenteditable="true"></div>' : composerType === 'textarea' ? '<textarea id="prompt-textarea"></textarea>' : '<div id="prompt-textarea" contenteditable="true"></div>'}<button type="button" ${currentChat ? 'aria-label="Send"' : 'data-testid="send-button"'} id="send">Send</button></form><main id="replies"></main><pre id="result">PENDING</pre>
     <script>
       let listener; const sent = [], packets = [], failures = [];
       window.chrome.runtime = {id:'fixture',onMessage:{addListener:fn=>listener=fn}, sendMessage:async message=>{
@@ -21,16 +22,18 @@ for (const composerType of ['textarea', 'contenteditable']) test(`real Chrome ${
         packets.push(message);
         return {ok:true,value:{run:'fixture',sequence:2,result:{content:[{type:'text',text:'local receipt'}]}}};
       }};
-      const getDraft=()=>{const composer=document.querySelector('#prompt-textarea');return composer.tagName==='TEXTAREA'?composer.value:composer.innerText;};
-      const setDraft=value=>{const composer=document.querySelector('#prompt-textarea');if(composer.tagName==='TEXTAREA')composer.value=value;else composer.textContent=value;};
+      const getDraft=()=>{const composer=document.querySelector('textarea,[contenteditable="true"]');return composer.tagName==='TEXTAREA'?composer.value:composer.innerText;};
+      const setDraft=value=>{const composer=document.querySelector('textarea,[contenteditable="true"]');if(composer.tagName==='TEXTAREA')composer.value=value;else composer.textContent=value;};
       document.querySelector('#send').onclick=()=>{sent.push(getDraft());setDraft('');};
     </script><script src="${source}"></script><script>
       const ask=message=>new Promise(resolve=>listener(message,{id:'fixture'},resolve));
       const check=(condition,message)=>{if(!condition)throw new Error(message);};
       (async()=>{
         check((await ask({kind:'bridge-probe'})).proModel,'Pro was not detected');
-        document.querySelector('#model').textContent='Sol';
-        check(!(await ask({kind:'bridge-probe'})).proModel,'Sol was accepted as Pro');
+        for(const label of ['Sol','Upgrade to Pro']){
+          document.querySelector('#model').textContent=label;
+          check(!(await ask({kind:'bridge-probe'})).proModel,label+' was accepted as Pro');
+        }
         document.querySelector('#model').textContent='GPT Pro';
         setDraft('preserve this draft');
         const refused=await ask({kind:'bridge-start',run:'fixture',path:location.pathname,prompt:'safe prompt'});

@@ -17,19 +17,24 @@
     if (!probe().proModel) throw new Error('Pro selection is no longer visible. Bridge paused.');
   }
   function probe() {
-    const labels = [...document.querySelectorAll('button[data-testid="model-switcher-dropdown-button"], header button')]
+    const modelSelectors = 'button[data-testid="model-switcher-dropdown-button"], button[aria-label="Select ChatGPT model"]';
+    const labels = [...document.querySelectorAll(modelSelectors + ', header button')]
       .filter(el => el.getClientRects().length)
-      .filter(el => el.matches('[data-testid="model-switcher-dropdown-button"]') || /model|thinking|intelligence/i.test(el.getAttribute('aria-label') || '') || (el.innerText.trim() === 'Pro' && el.getAttribute('aria-pressed') === 'true'))
+      .filter(el => el.matches(modelSelectors) || /model|thinking|intelligence/i.test(el.getAttribute('aria-label') || '') || (el.innerText.trim() === 'Pro' && el.getAttribute('aria-pressed') === 'true'))
       .map(el => [el.innerText, el.getAttribute('aria-label'), el.getAttribute('title')].filter(Boolean).join(' '));
     const model = labels.find(text => /\bpro\b/i.test(text) && !/upgrade|try|subscription/i.test(text));
     return { proModel: !!model, model: model || labels.find(text => /chatgpt|gpt[\s-]?\d/i.test(text)) || '' };
   }
   function generating() { return !!document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"]'); }
+  function getComposer() {
+    const visible = [...document.querySelectorAll('#prompt-textarea, [contenteditable="true"][role="textbox"][aria-label="Ask ChatGPT"]')].filter(el => el.getClientRects().length);
+    return visible.length === 1 ? visible[0] : null;
+  }
   async function send(text, run) {
     verifyRun(run);
     if (generating()) throw new Error('ChatGPT is still generating. No message was sent.');
-    const composer = document.querySelector('#prompt-textarea');
-    if (!composer || !composer.getClientRects().length) throw new Error('ChatGPT composer not found.');
+    const composer = getComposer();
+    if (!composer) throw new Error('ChatGPT composer not found or ambiguous.');
     const existing = composer.tagName === 'TEXTAREA' ? composer.value : composer.innerText;
     if (existing.trim()) throw new Error('Your existing draft was preserved. Clear it before restarting.');
     composer.focus();
@@ -51,8 +56,8 @@
         try {
           verifyRun(run);
           if (generating()) throw new Error('ChatGPT is generating. The pending message was not sent.');
-          if (document.querySelector('#prompt-textarea') !== composer || (composer.tagName === 'TEXTAREA' ? composer.value : composer.innerText) !== inserted) throw new Error('The composer changed. Your draft was preserved and no message was sent.');
-          const button = document.querySelector('button[data-testid="send-button"], button[data-testid="composer-submit-button"], button[aria-label="Send prompt"]');
+          if (getComposer() !== composer || (composer.tagName === 'TEXTAREA' ? composer.value : composer.innerText) !== inserted) throw new Error('The composer changed. Your draft was preserved and no message was sent.');
+          const button = document.querySelector('button[data-testid="send-button"], button[data-testid="composer-submit-button"], button[aria-label="Send prompt"]') || composer.closest('form')?.querySelector('button[aria-label="Send"]');
           if (button && !button.disabled) { button.click(); settle(); }
           else if (Date.now() < deadline) pending.timer = setTimeout(click, 100);
           else settle(new Error('Send button unavailable. The inserted message remains as a draft.'));

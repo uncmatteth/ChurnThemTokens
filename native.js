@@ -11,9 +11,18 @@ function frame(message) {
   return Buffer.concat([header, bytes]);
 }
 function startNative(bridge, input = process.stdin, output = process.stdout, onEnd = () => bridge.close()) {
-  let buffered = Buffer.alloc(0), queue = Promise.resolve(), closing = false;
-  const send = message => { if (message) output.write(frame(message)); };
-  const finish = () => { if (!closing) { closing = true; queue.finally(onEnd).catch(() => {}); } };
+  let buffered = Buffer.alloc(0), queue = Promise.resolve(), closing = false, stopped;
+  const send = message => { if (message && !closing) output.write(frame(message)); };
+  const finish = () => {
+    if (!closing) {
+      closing = true; buffered = Buffer.alloc(0);
+      // Disconnect revokes the connection immediately, even if a dispatched
+      // tool is blocked. Never drain pending actions after the owner stops.
+      try { stopped = Promise.resolve(onEnd()); } catch (error) { stopped = Promise.reject(error); }
+      stopped.catch(() => {});
+    }
+    return stopped;
+  };
   input.on('data', data => {
     if (closing) return;
     buffered = Buffer.concat([buffered, data]);
@@ -25,11 +34,13 @@ function startNative(bridge, input = process.stdin, output = process.stdout, onE
       let request;
       try { request = JSON.parse(bytes.toString('utf8')); }
       catch { send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Invalid JSON' } }); continue; }
-      queue = queue.then(() => dispatch(bridge, request)).then(send, () => send({ jsonrpc: '2.0', id: request.id ?? null, error: { code: -32603, message: 'Native request failed' } }));
+      queue = queue.then(() => closing ? null : dispatch(bridge, request)).then(send, () => send({ jsonrpc: '2.0', id: request.id ?? null, error: { code: -32603, message: 'Native request failed' } }));
     }
   });
   input.on('end', () => { if (buffered.length) send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Truncated native message' } }); finish(); });
   input.on('error', finish);
-  return { close: () => { input.destroy(); finish(); } };
+  input.on('close', finish);
+  output.on('error', finish);
+  return { close: () => { input.destroy(); return finish(); } };
 }
 module.exports = { startNative, frame, MAX_MESSAGE };

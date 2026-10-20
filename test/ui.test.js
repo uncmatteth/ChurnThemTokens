@@ -1,8 +1,36 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { fixture } = require('./helpers');
 const { dispatch } = require('../transport');
+test('close cancels an active UI helper and refuses queued or later UI actions', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t), started = path.join(f.temp, 'ui-started'), gate = path.join(f.temp, 'ui-release'), effect = path.join(f.temp, 'ui-effect');
+  const executable = path.join(f.temp, 'synthetic-ui');
+  fs.writeFileSync(executable, `#!${process.execPath}\nconst fs = require('node:fs');\nrequire('node:readline').createInterface({input:process.stdin}).on('line', () => {\n  fs.writeFileSync(${JSON.stringify(started)}, 'started');\n  setInterval(() => { if (fs.existsSync(${JSON.stringify(gate)})) fs.writeFileSync(${JSON.stringify(effect)}, 'must not happen'); }, 10);\n});\n`, { mode: 0o700 });
+  f.config.python = executable;
+  const active = f.call('desktop', { operation: 'type', text: 'synthetic first action' });
+  const queued = f.call('desktop', { operation: 'type', text: 'synthetic queued action' });
+  const results = Promise.allSettled([active, queued]);
+  const deadline = Date.now() + 5000;
+  while (!fs.existsSync(started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(fs.existsSync(started), true, 'synthetic helper never received its first action');
+  const helper = f.bridge.helper;
+  t.after(() => { if (helper.exitCode === null && helper.signalCode === null) helper.kill('SIGKILL'); });
+  await f.bridge.close();
+  const settled = await Promise.race([results, new Promise(resolve => setTimeout(() => resolve(null), 200))]);
+  assert.ok(settled, 'stop left active or queued UI requests unresolved');
+  assert.deepEqual(settled.map(result => result.status), ['rejected', 'rejected']);
+  assert.ok(helper.exitCode !== null || helper.signalCode !== null, 'the active UI helper survived close');
+  assert.equal(f.bridge.helper, null);
+  fs.writeFileSync(gate, 'release');
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(fs.existsSync(effect), false, 'a UI side effect happened after stop');
+  await assert.rejects(f.call('desktop', { operation: 'status' }), /stopped|closing/i);
+  await assert.rejects(f.bridge.ui({ kind: 'desktop', operation: 'status' }), /stopped|closing/i);
+  assert.equal(f.bridge.helper, null, 'a queued action restarted the stopped UI helper');
+});
 // Opt-in real browser test. No account, Internet, local HTTP server, or existing profile.
 test('real Chromium through MCP: start, tabs, snapshot, screenshot, stop', { skip: process.env.BRIDGEBRAIN_UI_TESTS !== '1' }, async t => {
   const f = fixture(t); f.config.chromiumExecutable = process.env.BRIDGEBRAIN_TEST_CHROMIUM || null;

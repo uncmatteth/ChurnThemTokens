@@ -21,11 +21,19 @@ function decode(bytes) {
 }
 async function nativeCall(f, data) {
   const input = new PassThrough(), output = new PassThrough(), pieces = [];
-  output.on('data', bytes => pieces.push(bytes));
+  let expected = 1;
+  try { expected = decode(data).filter(message => message.id !== undefined).length; } catch {}
+  output.on('data', bytes => {
+    pieces.push(bytes);
+    try {
+      if (decode(Buffer.concat(pieces)).length >= expected) queueMicrotask(() => { if (!input.destroyed && !input.writableEnded) input.end(); });
+    } catch {} // A native response may arrive in partial frames.
+  });
   let done; const finished = new Promise(resolve => { done = resolve; });
   startNative(f.bridge, input, output, async () => done());
   // Exercise partial headers and payloads, not only complete writes.
-  input.write(data.subarray(0, 2)); input.write(data.subarray(2, 7)); input.end(data.subarray(7));
+  input.write(data.subarray(0, 2)); input.write(data.subarray(2, 7));
+  if (!input.destroyed) input.write(data.subarray(7));
   await finished; return decode(Buffer.concat(pieces));
 }
 test('native transport preserves real file writes, readback hashes and deletion', async t => {
@@ -38,6 +46,28 @@ test('native transport preserves real file writes, readback hashes and deletion'
   assert.equal(JSON.parse(response.result.content[0].text).sha256, saved.sha256);
   [response] = await nativeCall(f, frame(rpc('tools/call', { name: 'file_delete', arguments: { project: 'sample', path: 'smoke.txt', expected_sha256: saved.sha256 } })));
   assert.equal(response.result.isError, false); assert.equal(fs.existsSync(path.join(f.root, 'smoke.txt')), false);
+});
+test('native disconnect cancels an active request before a queued mutation can start', async t => {
+  const f = fixture(t), input = new PassThrough(), output = new PassThrough();
+  let release, started;
+  const entered = new Promise(resolve => { started = resolve; });
+  f.bridge.tool('blocked_action', 'Synthetic in-flight action', { type: 'object', properties: {}, additionalProperties: false }, 'read', true, () => new Promise(resolve => { release = resolve; started(); }));
+  let done, closeStarted = false;
+  const stopped = new Promise(resolve => { done = resolve; });
+  startNative(f.bridge, input, output, async () => { closeStarted = true; await f.bridge.close(); done(); });
+  input.write(Buffer.concat([
+    frame(rpc('tools/call', { name: 'blocked_action' }, 1)),
+    frame(rpc('tools/call', { name: 'file_write', arguments: { project: 'sample', path: 'after-stop.txt', content: 'must not run', expected_sha256: '' } }, 2)),
+  ]));
+  await entered;
+  input.end();
+  await new Promise(resolve => setImmediate(resolve));
+  const immediate = closeStarted;
+  release({ cancelled: true });
+  await stopped;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(immediate, true, 'disconnect waited for the in-flight action instead of stopping immediately');
+  assert.equal(fs.existsSync(path.join(f.root, 'after-stop.txt')), false, 'a queued write ran after disconnect');
 });
 test('native RPC retains read-only permission checks and never executes notifications', async t => {
   const f = fixture(t, { write: false });

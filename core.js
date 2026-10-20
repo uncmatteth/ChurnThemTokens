@@ -44,6 +44,14 @@ function cleanEnv(extra = {}) {
   }
   return env;
 }
+function stopChild(child, force = false) {
+  if (!child.pid) return;
+  if (process.platform === 'win32') {
+    if (child.exitCode !== null) return;
+    const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', ...(force ? ['/F'] : [])], { windowsHide: true, stdio: 'ignore', env: cleanEnv() });
+    killer.on('error', () => child.kill(force ? 'SIGKILL' : 'SIGTERM'));
+  } else { try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); } catch {} }
+}
 const str = (maxLength = 16384) => ({ type: 'string', maxLength });
 const num = (minimum, maximum) => ({ type: 'integer', minimum, maximum });
 const arr = (items, maxItems = 100) => ({ type: 'array', items, maxItems });
@@ -94,6 +102,8 @@ class DirectBridge {
     this.helperPending = new Map();
     this.helperSeq = 0;
     this.helperQueue = Promise.resolve();
+    this.closing = false;
+    this.closePromise = null;
     this.registerTools();
   }
   recoverJobs() {
@@ -115,6 +125,7 @@ class DirectBridge {
   }
   project(id) { const root = this.projects.get(id); if (!root) fail(`Unknown project: ${id}. Call project_list first.`); if (fs.realpathSync(root) !== root) fail('Project root was replaced by a symlink'); return root; }
   enabled(permission) {
+    if (this.closing) fail('Bridge is stopped; reconnect before requesting actions');
     const current = this.configFile ? jsonRead(this.configFile, this.config) : this.config;
     if (current.paused) fail('Bridge is paused locally');
     if (permission !== 'read' && !current.permissions?.[permission]) fail(`${permission} is disabled. Only the local operator can enable it.`);
@@ -151,7 +162,10 @@ class DirectBridge {
   }
   async locked(key, fn) {
     const previous = this.locks.get(key) || Promise.resolve();
-    const next = previous.catch(() => {}).then(fn);
+    const next = previous.catch(() => {}).then(() => {
+      if (this.closing) fail('Bridge is stopped; queued actions were cancelled');
+      return fn();
+    });
     this.locks.set(key, next);
     try { return await next; } finally { if (this.locks.get(key) === next) this.locks.delete(key); }
   }
@@ -430,26 +444,20 @@ class DirectBridge {
     if (runtime.job.status !== 'running') return { ...runtime.job };
     if (runtime.job.terminationRequested) return { ...runtime.job };
     runtime.job.terminationRequested = reason;
-    const kill = force => {
-      if (!runtime.child.pid) return;
-      if (process.platform === 'win32') {
-        if (runtime.child.exitCode !== null) return;
-        const killer = spawn('taskkill.exe', ['/PID', String(runtime.child.pid), '/T', ...(force ? ['/F'] : [])], { windowsHide: true, stdio: 'ignore', env: cleanEnv() });
-        killer.on('error', () => runtime.child.kill());
-      } else { try { process.kill(-runtime.child.pid, force ? 'SIGKILL' : 'SIGTERM'); } catch {} }
-    };
-    kill(false); runtime.stopTimer = setTimeout(() => kill(true), 1500); runtime.stopTimer.unref();
+    stopChild(runtime.child); runtime.stopTimer = setTimeout(() => stopChild(runtime.child, true), 1500); runtime.stopTimer.unref();
     this.saveJob(runtime.job); return { ...runtime.job };
   }
   ui(args) {
+    if (this.closing) return Promise.reject(new Error('Bridge is stopped; queued UI actions were cancelled'));
     // A single ordered GUI lane prevents two concurrent clicks or typing actions
     // from racing on the same desktop/browser session.
     const task = this.helperQueue.catch(() => {}).then(() => this.uiRequest(args));
     this.helperQueue = task; return task;
   }
   uiRequest(args) {
+    if (this.closing) return Promise.reject(new Error('Bridge is stopped; queued UI actions were cancelled'));
     if (!this.helper) {
-      const child = spawn(this.config.python || (process.platform === 'win32' ? 'python' : 'python3'), [path.join(__dirname, 'ui_backend.py'), '--state', this.state, ...(this.config.chromiumExecutable ? ['--chromium-executable', this.config.chromiumExecutable] : [])], { env: cleanEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      const child = spawn(this.config.python || (process.platform === 'win32' ? 'python' : 'python3'), [path.join(__dirname, 'ui_backend.py'), '--state', this.state, ...(this.config.chromiumExecutable ? ['--chromium-executable', this.config.chromiumExecutable] : [])], { env: cleanEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
       this.helper = child; let buffered = '';
       const dead = () => {
         if (this.helper === child) this.helper = null;
@@ -478,12 +486,26 @@ class DirectBridge {
       this.helper.stdin.write(`${JSON.stringify({ id, ...args })}\n`);
     });
   }
-  async close() {
-    for (const [id, runtime] of this.jobs) if (runtime.job.status === 'running') this.stopJob(id, 'interrupted');
-    if (this.helper) { this.helper.stdin.end(); this.helper = null; }
-    let timer;
-    try { await Promise.race([Promise.all([...this.jobs.values()].filter(r => !r.job.finishedAt).map(r => new Promise(resolve => r.child.once('close', resolve)))), new Promise(resolve => { timer = setTimeout(resolve, 2200); })]); }
-    finally { clearTimeout(timer); }
+  close() {
+    if (this.closePromise) return this.closePromise;
+    this.closing = true;
+    this.closePromise = (async () => {
+      const waits = [...this.jobs.values()].filter(r => !r.job.finishedAt).map(r => new Promise(resolve => r.child.once('close', resolve)));
+      for (const [id, runtime] of this.jobs) if (runtime.job.status === 'running') this.stopJob(id, 'interrupted');
+      for (const pending of this.helperPending.values()) { clearTimeout(pending.timer); pending.reject(new Error('Bridge is stopped; the active UI action was cancelled. Inspect its outcome before retrying.')); }
+      this.helperPending.clear();
+      const helper = this.helper; this.helper = null;
+      if (helper) {
+        waits.push(new Promise(resolve => helper.once('close', resolve)));
+        helper.stdin.destroy(); stopChild(helper);
+        const force = setTimeout(() => stopChild(helper, true), 1500); force.unref();
+        helper.once('close', () => clearTimeout(force));
+      }
+      let timer;
+      try { await Promise.race([Promise.all(waits), new Promise(resolve => { timer = setTimeout(resolve, 2200); })]); }
+      finally { clearTimeout(timer); }
+    })();
+    return this.closePromise;
   }
 }
 module.exports = { DirectBridge, hash, inside, privateDir, atomic, jsonRead, jsonWrite, cleanEnv, validate, LIMIT };
