@@ -50,14 +50,14 @@ def gtk_window(backend):
     coordinates.pack_start(y, True, True, 0)
 
     def run(operation, **extra):
-        status.set_text("Working…" if operation == "start" else status.get_text())
+        status.set_text("Starting screen and mouse control…" if operation == "start" else status.get_text())
         while Gtk.events_pending():
             Gtk.main_iteration_do(False)
         try:
             if "x" in extra:
                 extra = {"x": int(extra["x"]), "y": int(extra["y"])}
             result = backend.desktop({"operation": operation, **extra})
-            status.set_text("Screen and mouse ready" if result.get("active") else "Stopped" if operation == "stop" else f"{operation} completed")
+            status.set_text("Screen and mouse ready" if result.get("active") else "Screen and mouse control is not ready" if operation == "start" else "Stopped" if operation == "stop" else f"{operation} completed")
             if operation == "screenshot":
                 loader = GdkPixbuf.PixbufLoader.new_with_type("jpeg")
                 loader.write(base64.b64decode(result["_image"]))
@@ -114,13 +114,13 @@ def tk_window(backend):
     x.pack(side="left", fill="x", expand=True); y.pack(side="left", fill="x", expand=True)
 
     def run(operation, **extra):
-        status.set("Working…" if operation == "start" else status.get())
+        status.set("Starting screen and mouse control…" if operation == "start" else status.get())
         window.update_idletasks()
         try:
             if "x" in extra:
                 extra = {"x": int(extra["x"]), "y": int(extra["y"])}
             result = backend.desktop({"operation": operation, **extra})
-            status.set("Screen and mouse ready" if result.get("active") else "Stopped" if operation == "stop" else f"{operation} completed")
+            status.set("Screen and mouse ready" if result.get("active") else "Screen and mouse control is not ready" if operation == "start" else "Stopped" if operation == "stop" else f"{operation} completed")
             if operation == "screenshot":
                 picture = Image.open(io.BytesIO(base64.b64decode(result["_image"])))
                 picture.thumbnail((600, 390))
