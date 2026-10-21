@@ -116,9 +116,9 @@ async function install(options, environment = {}) {
     status: options.dryRun ? 'planned_no_changes' : 'local_helper_ready_browser_connection_unverified',
     native_handshake: proof, extension_id: plan.extension_id, extension_directory: plan.extension_directory,
     browser_steps: [
-      { action: 'load_or_reload_extension', page: 'chrome://extensions/', directory: plan.extension_directory, extension_id: plan.extension_id },
+      { action: 'install_from_chrome_web_store', url: `https://chromewebstore.google.com/detail/${plan.extension_id}`, extension_id: plan.extension_id, instruction: 'Open the store listing in the intended existing Chrome profile and choose Add to Chrome.' },
       { action: 'select_existing_chat', origin: 'https://chatgpt.com', model: 'Pro', instruction: 'Use the signed-in session. Verify the actual selected model; never copy browser state or change accounts.' },
-      { action: 'open_extension', name: 'ChurnThemTokens', button: 'Connect this Pro chat' },
+      { action: 'open_extension', name: 'ChurnThemTokens', button: 'Agree & connect this Pro chat' },
       { action: 'verify_live_round_trip', button: 'Allow tools & run quick check', evidence: 'Actual Pro requests; matching file hashes and real command exit status returned to that same chat.' },
     ],
     agent_instruction: 'Own these browser steps with supported browser tools. Ask the person only for a specific unavoidable local consent. Do not call the connection verified until the live round trip succeeds.',

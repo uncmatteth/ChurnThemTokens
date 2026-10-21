@@ -21,7 +21,8 @@ steps; neither proves the other worked.
    The installer handles private configuration, native-host registration and a
    real native transport handshake. It never installs or invokes a model client.
 4. Follow the returned `browser_steps` with the current supported browser tool:
-   load or reload the unpacked extension, use the existing signed-in ChatGPT
+   install the extension from its Chrome Web Store listing in the intended
+   existing Chrome profile, use the existing signed-in ChatGPT
    tab, select the actual Pro model, open ChurnThemTokens, connect the chat, then
    run its quick check. Do these actions yourself when tools allow it. Never
    edit Chrome profile/preferences databases or extract cookies/tokens. Respect

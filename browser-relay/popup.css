@@ -7,6 +7,8 @@ p { margin: 0 0 12px; text-wrap: pretty; }
 header p, .hint, footer { color: #586674; }
 .connection { margin: 18px 0 12px; }
 #status { font-weight: 600; font-variant-numeric: tabular-nums; }
+.disclosure { padding: 12px; border: 1px solid #cbdde5; border-radius: 8px; background: #eef5f7; font-size: 12px; }
+.disclosure a { color: #145b80; }
 button, textarea, summary { font: inherit; }
 button { width: 100%; min-height: 44px; padding: 10px 12px; margin: 0 0 8px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background-color 120ms, border-color 120ms; }
 .primary { background: #16644c; color: white; }
@@ -31,6 +33,8 @@ footer { border-top: 1px solid #d6dee5; padding-top: 12px; margin-top: 12px; }
   :root { color: #edf2f7; background: #182026; }
   header p, .hint, footer, summary, .quiet { color: #b2bec9; }
   .access, textarea { background: #222d35; border-color: #485965; }
+  .disclosure { background: #21313a; border-color: #485965; }
+  .disclosure a { color: #8ed4ff; }
   .secondary { background: #2b443b; color: #d9f0e6; }
   .secondary:hover:not(:disabled) { background: #345347; }
   .quiet, footer { border-color: #485965; }

@@ -12,7 +12,7 @@ function render() {
   const connected = current.connected === true, running = current.running === true;
   elements.connect.hidden = connected;
   elements.connect.disabled = busy;
-  elements.connect.textContent = busy ? 'Connecting…' : 'Connect this Pro chat';
+  elements.connect.textContent = busy ? 'Connecting…' : 'Agree & connect this Pro chat';
   elements['task-panel'].hidden = !connected;
   elements.status.textContent = !connected ? 'Open your Pro chat in ChatGPT, then connect.' : running ? `Working on ${current.hostname} · ${current.steps || 0} tool results` : current.error ? `Paused on ${current.hostname}` : current.completion ? `Finished on ${current.hostname}` : `Connected to ${current.hostname}`;
   const error = actionError || current.error || '';

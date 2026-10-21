@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const manifest = require('./manifest.json');
 const { jsonRead, privateDir } = require('../core');
 const HOST = 'com.chatgpt.local_bridge';
+const PRE_STORE_EXTENSION_ID = 'kbnifegchipefmhibbgpndogjaokagdj';
 function extensionId() {
   if (!manifest.key) throw new Error('Extension public key is missing.');
   return crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(97 + parseInt(value, 16)));
@@ -27,20 +28,39 @@ function plan({ config, home = os.homedir(), platform = process.platform, node =
   return { extension_id: id, extension_directory: __dirname, wrapper, host_manifest: hostManifest, files: [{ path: wrapper, content: script, mode: 0o700 }, { path: hostManifest, content: registration, mode: 0o600 }] };
 }
 function install(value, dryRun = true) {
-  // Preflight every destination before writing either file. Never replace a
-  // user's existing registration or follow its symlink.
+  // Only our exact pre-store registration may be migrated. An unrelated or
+  // edited native host always remains untouched.
+  const priorRegistration = value.files.find(file => file.path === value.host_manifest)?.content.replace(
+    `chrome-extension://${value.extension_id}/`, `chrome-extension://${PRE_STORE_EXTENSION_ID}/`);
   for (const file of value.files) {
     try {
       const stat = fs.lstatSync(file.path);
-      if (!stat.isFile() || stat.isSymbolicLink() || fs.readFileSync(file.path, 'utf8') !== file.content) throw new Error('An existing native-host file differs; it was not overwritten.');
+      const existing = stat.isFile() && !stat.isSymbolicLink() ? fs.readFileSync(file.path, 'utf8') : null;
+      if (existing !== file.content && !(file.path === value.host_manifest && existing === priorRegistration)) throw new Error('An existing native-host file differs; it was not overwritten.');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   if (!dryRun) for (const file of value.files) {
     privateDir(path.dirname(file.path));
-    try { fs.writeFileSync(file.path, file.content, { mode: file.mode, flag: 'wx' }); }
-    catch (error) { if (error.code !== 'EEXIST' || fs.readFileSync(file.path, 'utf8') !== file.content) throw error; }
+    if (fs.existsSync(file.path)) {
+      const existing = fs.readFileSync(file.path, 'utf8');
+      if (existing === file.content) continue;
+      if (file.path !== value.host_manifest || existing !== priorRegistration) throw new Error('An existing native-host file differs; it was not overwritten.');
+      const backup = file.path + '.pre-store-backup';
+      if (fs.existsSync(backup)) {
+        if (!fs.lstatSync(backup).isFile() || fs.lstatSync(backup).isSymbolicLink() || fs.readFileSync(backup, 'utf8') !== existing) throw new Error('An existing native-host backup differs; it was not overwritten.');
+      } else fs.writeFileSync(backup, existing, { mode: 0o600, flag: 'wx' });
+      const staged = file.path + '.new-' + process.pid;
+      try {
+        fs.writeFileSync(staged, file.content, { mode: file.mode, flag: 'wx' });
+        fs.renameSync(staged, file.path);
+      } finally {
+        if (fs.existsSync(staged)) fs.unlinkSync(staged);
+      }
+      continue;
+    }
+    fs.writeFileSync(file.path, file.content, { mode: file.mode, flag: 'wx' });
   }
-  return { dry_run: dryRun, extension_id: value.extension_id, extension_directory: value.extension_directory, native_host_manifest: value.host_manifest, notice: 'No browser was changed and no process, listener or model client was started. The installing agent should load or reload the extension using supported browser controls, then connect the authorized Pro chat.' };
+  return { dry_run: dryRun, extension_id: value.extension_id, extension_directory: value.extension_directory, native_host_manifest: value.host_manifest, notice: 'The local helper is registered. Open the Chrome Web Store listing for this extension ID in the intended Chrome profile, then connect the authorized Pro chat.' };
 }
 function main(argv = process.argv.slice(2)) {
   let config, profileDirectory, dryRun = true;

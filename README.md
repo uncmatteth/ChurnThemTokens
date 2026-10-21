@@ -21,7 +21,10 @@ task from a real Pro chat has not been verified yet. Setup needs that check too.
 
 ## Setup
 
-Tell the coding agent on your computer:
+Install [ChurnThemTokens from the Chrome Web Store](https://chromewebstore.google.com/detail/nmmgjnldkinoellekdjmmdgcjadmabok) when its listing becomes available. That
+adds the extension without Chrome developer mode. The computer helper still
+needs local setup and a project folder you approve. Tell the coding agent on
+your computer:
 
 > Install https://github.com/uncmatteth/ChurnThemTokens. Read AGENTS.md and handle
 > the setup yourself. Use my current project folder, connect my existing ChatGPT
@@ -52,7 +55,7 @@ Connect for a task, then disconnect when you're done. After setup, the extension
 has these controls:
 
 1. Open your ChatGPT chat and select the Pro model.
-2. Open **ChurnThemTokens** and click **Connect this Pro chat**.
+2. Open **ChurnThemTokens**, read its data disclosure, and click **Agree & connect this Pro chat**.
 3. Check the computer and folders shown, enter the task, and click **Allow tools & run task**.
 4. Click **Disconnect & stop** when you're finished.
 

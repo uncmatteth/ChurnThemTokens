@@ -3,6 +3,9 @@
   "name": "ChurnThemTokens",
   "version": "0.1.1",
   "description": "Connect an explicitly selected ChatGPT Pro web chat to your local computer tools. No Codex or model API calls.",
+  "icons": {
+    "128": "icon128.png"
+  },
   "permissions": [
     "activeTab",
     "scripting",
@@ -13,7 +16,8 @@
   },
   "action": {
     "default_popup": "popup.html",
+    "default_icon": "icon128.png",
     "default_title": "ChurnThemTokens"
   },
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqnHt48GxXUeGSJhihAEg/C4mNrKoYoQl3+mniKWoIUl/ncExO6Vtod6EU5LLP2jWyUh2riUc6HIXZOseosh3pudT+/ljRCC34/cHpk9/X56PAMs1+SLmUQKkAaEj3z4U/AJCm5xYMYOP7l8Zji9H+mdYcVgiNhzMhMfKGCsje+Gbrg67c1Vsb6o0rsLcr8DClZNpg9LgiHd3F6XJ8rrxuKYb47S+vyzfoANkqOkSQMwstrg84XxcdmK9EA69+ZGI6mj6u9yAyq7UzNJByNHkdRGiRj94ltDv81h+MxkIO08lyV9WC0ncsn9+YSwPhdlJePPLW4ea9LpblJduFWeOoQIDAQAB"
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwhR7iThnhcNzFPPS9dEk5Sm/1upVBaozhrwHslmlCGRpVWxGMuvbpnqMKkDY1BnfJ5yft1Pf1hrPOVDS0yogkYnzBhOZNX1xMEoLoIyoXaPGBrcvnbYienkk53GYxCNAf+cbRRxPFsQgflWXn5FzB6jQVZGa+wEd+VJZEalwG/+FkW875pvOu07gY/gRPMEmV41DVFHN1sIBQRH8Ym101e3jz7ScrsrRpLYvm82opjWmGM+oVE5bg8ZgrCqgto6E1dtWgKwo2WCyaE+kLMwwGQOhEJmoHT3B3xjUs6vSWrdBT0V7uv1+hb1FeN75Uxr+euBT5I2SaEG/tNNfTg5y/wIDAQAB"
 }

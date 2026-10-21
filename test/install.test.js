@@ -17,6 +17,7 @@ test('agent installer dry run makes no files or browser changes', async t => {
   const f = fixture(t), result = await install({ ...f.options, dryRun: true }, f.environment);
   assert.equal(result.status, 'planned_no_changes'); assert.equal(result.native_handshake, null);
   assert.equal(fs.existsSync(f.config), false); assert.equal(fs.existsSync(f.home), false);
+  assert.equal(result.browser_steps[0].url, 'https://chromewebstore.google.com/detail/nmmgjnldkinoellekdjmmdgcjadmabok');
   assert.equal(result.browser_steps.at(-1).action, 'verify_live_round_trip');
 });
 test('agent installer verifies real native transport and repeats without changing config or tokens', async t => {
@@ -45,6 +46,23 @@ test('installer rejects unsafe roots, unsupported platforms and malformed option
   await assert.rejects(install(f.options, { ...f.environment, platform: 'win32' }), /Linux and macOS/);
   for (const argv of [['--config'], ['--root', '--allow-write'], ['--unknown']]) assert.throws(() => optionsFor(argv));
   assert.equal(fs.existsSync(f.config), false);
+});
+test('installer migrates only its exact pre-store Chrome origin and keeps a reversible backup', async t => {
+  const f = fixture(t);
+  await install(f.options, f.environment);
+  const registration = path.join(f.home, '.config', 'google-chrome', 'NativeMessagingHosts', 'com.chatgpt.local_bridge.json');
+  const current = fs.readFileSync(registration, 'utf8');
+  const former = current.replace('chrome-extension://nmmgjnldkinoellekdjmmdgcjadmabok/', 'chrome-extension://kbnifegchipefmhibbgpndogjaokagdj/');
+  assert.notEqual(former, current);
+  fs.writeFileSync(registration, former);
+  assert.equal((await install({ ...f.options, dryRun: true }, f.environment)).status, 'planned_no_changes');
+  assert.equal(fs.readFileSync(registration, 'utf8'), former);
+  assert.equal((await install(f.options, f.environment)).native_handshake.verified, true);
+  assert.equal(fs.readFileSync(registration, 'utf8'), current);
+  assert.equal(fs.readFileSync(registration + '.pre-store-backup', 'utf8'), former);
+  fs.writeFileSync(registration, former.replace('local computer tools', 'unexpected edit'));
+  await assert.rejects(install(f.options, f.environment), /differs/);
+  assert.notEqual(fs.readFileSync(registration, 'utf8'), current);
 });
 test('native setup uses the correct macOS Chrome registration directory', t => {
   const f = fixture(t), settings = { stateDir: path.join(f.temp, 'state'), projects: [{ id: 'project', path: f.root }] };
