@@ -10,7 +10,7 @@ function worker() {
   let listener, receiver, disconnect;
   const calls = [], posts = [];
   const context = { pro: true, jobs: [], desktopGrant: false, url: 'https://chatgpt.com/c/fixture' };
-  const tools = ['bridge_status', 'project_list', 'job_list', 'file_read'].map(name => ({ name, inputSchema: { type: 'object' } }));
+  const tools = ['bridge_status', 'project_list', 'job_list', 'file_read', 'desktop'].map(name => ({ name, inputSchema: { type: 'object' } }));
   const value = (name, args) => name === 'bridge_status' ? { hostname: 'test-machine', permissions: { write: false, desktop: context.desktopGrant } } : name === 'project_list' ? [{ id: 'sample', root: '/fixture' }] : name === 'job_list' ? context.jobs : name === 'desktop' ? { active: args.operation === 'start', wayland: true } : { content: 'receipt' };
   const port = {
     onMessage: { addListener: fn => { receiver = fn; } },
@@ -51,12 +51,15 @@ test('relay requires explicit session consent and sends no task without it', asy
   assert.equal(refused.ok, false); assert.equal(w.posts.some(m => m.kind === 'bridge-start'), false);
   await w.send({ kind: 'stop' });
 });
-test('desktop grant starts from one connection and only the panel can stop it', async () => {
+test('AIClickThatShit starts by default and only the panel can enable or stop it', async () => {
   const w = worker(); w.context.desktopGrant = true;
   assert.equal((await w.send({ kind: 'connect' })).ok, true);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal((await w.send({ kind: 'status' })).value.desktop.active, true);
-  assert.equal(w.calls.filter(m => m.params?.name === 'desktop' && m.params.arguments.operation === 'start').length, 1);
+  assert.equal((await w.send({ kind: 'desktop-stop' })).value.desktop.active, false);
+  assert.equal((await w.send({ kind: 'desktop-start' }, w.content)).ok, false);
+  assert.equal((await w.send({ kind: 'desktop-start' })).value.desktop.active, true);
+  assert.equal(w.calls.filter(m => m.params?.name === 'desktop' && m.params.arguments.operation === 'start').length, 2);
   assert.equal((await w.send({ kind: 'desktop-stop' }, w.content)).ok, false);
   assert.equal((await w.send({ kind: 'desktop-stop' })).value.desktop.active, false);
   await w.send({ kind: 'stop' });
@@ -104,5 +107,25 @@ test('a completion cannot claim success while local jobs are still running', asy
   w.context.jobs = [];
   assert.equal((await w.send({ kind: 'bridge-packet', text: JSON.stringify(packet) }, w.content)).value.done, true);
   assert.equal((await w.send({ kind: 'status' })).value.completion, 'Finished');
+  await w.send({ kind: 'stop' });
+});
+
+test('turning off AIClickThatShit blocks Pro desktop requests while file tools keep working', async () => {
+  const w = worker(); w.context.desktopGrant = true;
+  await w.send({ kind: 'connect' });
+  await w.send({ kind: 'desktop-start' });
+  await w.send({ kind: 'start', task: 'check tools', consent: true });
+  await w.send({ kind: 'desktop-stop' });
+  const baseline = w.calls.length;
+  for (const operation of ['start', 'screenshot', 'click']) {
+    const result = await w.send({ kind: 'bridge-packet', text: JSON.stringify(w.packet(1, { name: 'desktop', arguments: { operation } })) }, w.content);
+    assert.equal(result.ok, false); assert.match(result.error, /AIClickThatShit/);
+  }
+  assert.equal(w.calls.length, baseline);
+  assert.equal((await w.send({ kind: 'bridge-packet', text: JSON.stringify(w.packet()) }, w.content)).ok, true);
+  await w.send({ kind: 'stop' });
+  await w.send({ kind: 'connect' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await w.send({ kind: 'status' })).value.desktop.active, true);
   await w.send({ kind: 'stop' });
 });

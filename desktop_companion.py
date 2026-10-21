@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ChurnThemTokens Desktop: one local app for screen, mouse and keyboard.
+"""AIClickThatShit: one local app for screen, mouse and keyboard.
 
 Run without flags for the standalone window. The Chrome extension launches the
 same app with --stdio; there is no listener, background service or login copy.
@@ -22,7 +22,7 @@ def gtk_window(backend):
     gi.require_version("GdkPixbuf", "2.0")
     from gi.repository import Gtk, GdkPixbuf
 
-    window = Gtk.Window(title="ChurnThemTokens Desktop")
+    window = Gtk.Window(title="AIClickThatShit")
     window.set_default_size(650, 520)
     panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     panel.set_border_width(16)
@@ -67,9 +67,9 @@ def gtk_window(backend):
         control.connect("clicked", callback)
         row.pack_start(control, True, True, 0)
 
-    button("Start sharing", lambda *_: run("start"))
+    button("Turn on AIClickThatShit", lambda *_: run("start"))
     button("Show screen", lambda *_: run("screenshot"))
-    button("Stop sharing", lambda *_: run("stop"))
+    button("Turn off AIClickThatShit", lambda *_: run("stop"))
     click = Gtk.Button(label="Click X, Y")
     click.connect("clicked", lambda *_: run("click", x=x.get_text(), y=y.get_text()))
     coordinates.pack_start(click, False, False, 0)
@@ -87,7 +87,7 @@ def tk_window(backend):
     from PIL import Image, ImageTk
 
     window = tk.Tk()
-    window.title("ChurnThemTokens Desktop")
+    window.title("AIClickThatShit")
     window.geometry("650x520")
     panel = ttk.Frame(window, padding=16)
     panel.pack(fill="both", expand=True)
@@ -116,7 +116,7 @@ def tk_window(backend):
         except Exception as error:
             status.set(f"{type(error).__name__}: {error}")
 
-    for label, action in (("Start sharing", "start"), ("Show screen", "screenshot"), ("Stop sharing", "stop")):
+    for label, action in (("Turn on AIClickThatShit", "start"), ("Show screen", "screenshot"), ("Turn off AIClickThatShit", "stop")):
         ttk.Button(row, text=label, command=lambda op=action: run(op)).pack(side="left", fill="x", expand=True)
     ttk.Button(coordinates, text="Click X, Y", command=lambda: run("click", x=x.get(), y=y.get())).pack(side="left")
 

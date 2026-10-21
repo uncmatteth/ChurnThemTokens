@@ -51,9 +51,9 @@ must perform; handle the remaining navigation yourself.
 
 ## Run a task when called
 
-1. Open the extension and choose **Agree & connect this Pro chat**. When desktop
-   control was granted locally, this also opens the OS screen/input sharing
-   dialog. The person approves that OS prompt on the computer. Check the
+1. Open the extension and choose **Agree & connect this Pro chat**. AIClickThatShit starts by default when desktop control was granted locally,
+   opening the OS screen/input sharing dialog. Users can choose **Turn off
+   AIClickThatShit** and keep file and command tools connected. The person approves that OS prompt on the computer. Check the
    returned host, allowed folders and permissions against the requested task.
 2. On first use, run **Allow tools & run quick check**. Observe the actual Pro
    chat request the file operations and harmless command, then receive matching

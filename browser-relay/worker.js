@@ -63,7 +63,7 @@ async function connect(tabId) {
     const probe = await chrome.tabs.sendMessage(tabId, { kind: 'bridge-probe' });
     if (!probe.proModel) throw new Error(`Select the actual Pro model first. Current visible model label: ${probe.model || 'unavailable'}.`);
     const port = chrome.runtime.connectNative(HOST);
-    session = { tabId, path: LocalBridgeProtocol.chatUrl(tab.url).pathname, port, identity: {}, projects: [], tools: [], model: probe.model, running: false, run: crypto.randomUUID(), sequence: 1, steps: 0, busy: false, desktop: null, desktopPending: false, desktopError: null };
+    session = { tabId, path: LocalBridgeProtocol.chatUrl(tab.url).pathname, port, identity: {}, projects: [], tools: [], model: probe.model, running: false, run: crypto.randomUUID(), sequence: 1, steps: 0, busy: false, desktop: { active: false }, desktopPending: false, desktopError: null };
     port.onMessage.addListener(message => {
       const wait = pending.get(message.id); if (!wait) return;
       pending.delete(message.id); clearTimeout(wait.timer);
@@ -77,8 +77,7 @@ async function connect(tabId) {
     session.identity = textValue(await tool('bridge_status'));
     session.projects = textValue(await tool('project_list'));
     session.tools = (await rpc('tools/list')).tools;
-    // One extension connection also requests the temporary OS desktop grant.
-    // A dismissed OS prompt leaves the Pro chat connected and permits retry.
+    // Start AIClickThatShit by default when local desktop access is enabled.
     if (session.identity.permissions?.desktop) void desktopStart().catch(() => {});
     return summary();
   } catch (error) { close(); throw error; }
@@ -121,6 +120,9 @@ async function receive(message, sender) {
       return { done: true, message: request.message };
     }
     if (current.steps >= 64) throw new Error('This run reached its 64-request limit. Inspect results and finish before starting another task.');
+    if (request.name === 'desktop' && (current.desktop?.active !== true || ['start', 'stop'].includes(request.arguments?.operation))) {
+      throw new Error('AIClickThatShit is controlled by the user. Turn it on in the bridge panel before requesting desktop actions.');
+    }
     const result = await tool(request.name, request.arguments);
     if (session !== current || !current.running) throw new Error('Bridge stopped while the local action was running. Inspect the outcome before retrying.');
     current.steps++; current.sequence++;

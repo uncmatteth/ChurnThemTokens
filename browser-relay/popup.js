@@ -18,14 +18,14 @@ function render() {
   const error = actionError || current.error || '';
   elements.error.hidden = !error; elements.error.textContent = friendlyError(error);
   const permissions = current.permissions || {};
-  elements.permissions.textContent = [permissions.write ? 'Read and change files' : 'Read files', permissions.exec && 'Run commands', permissions.browser && 'Use browser tools', permissions.desktop && 'Control the desktop'].filter(Boolean).join(' · ');
+  elements.permissions.textContent = [permissions.write ? 'Read and change files' : 'Read files', permissions.exec && 'Run commands', permissions.browser && 'Use browser tools', permissions.desktop && 'AIClickThatShit available (optional)'].filter(Boolean).join(' · ');
   elements.roots.replaceChildren(...(current.projects || []).map(project => {
     const item = document.createElement('li'); item.textContent = `${project.id}: ${project.root}`; return item;
   }));
   elements['desktop-panel'].hidden = !connected || !permissions.desktop;
   const sharing = current.desktop?.active === true;
   const pending = current.desktopPending === true;
-  elements['desktop-status'].textContent = sharing ? 'Desktop shared · mouse and keyboard ready' : pending ? 'Waiting for the computer’s Share dialog…' : 'Desktop is not shared';
+  elements['desktop-status'].textContent = sharing ? 'AIClickThatShit on · mouse and keyboard ready' : pending ? 'Waiting for the computer’s Share dialog…' : 'AIClickThatShit off';
   elements['desktop-share'].hidden = sharing;
   elements['desktop-share'].disabled = busy || pending;
   elements['desktop-stop'].hidden = !sharing;
