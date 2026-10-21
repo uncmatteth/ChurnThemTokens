@@ -23,7 +23,7 @@ def gtk_window(backend):
     import gi
     gi.require_version("Gtk", "3.0")
     gi.require_version("GdkPixbuf", "2.0")
-    from gi.repository import Gtk, GdkPixbuf
+    from gi.repository import Gtk, GdkPixbuf, GLib
 
     window = Gtk.Window(title="AIClickThatShit")
     window.set_default_size(650, 520)
@@ -83,6 +83,7 @@ def gtk_window(backend):
         Gtk.main_quit()
     window.connect("destroy", close)
     window.show_all()
+    GLib.idle_add(lambda: (run("start"), False)[1])
     Gtk.main()
 
 
@@ -131,6 +132,7 @@ def tk_window(backend):
         backend.close()
         window.destroy()
     window.protocol("WM_DELETE_WINDOW", close)
+    window.after_idle(lambda: run("start"))
     window.mainloop()
 
 

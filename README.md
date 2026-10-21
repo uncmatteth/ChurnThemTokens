@@ -181,3 +181,5 @@ Built from the MIT-licensed Direct Chat executor in
 ### Photo icons
 
 Lulu’s existing photo is the main ChurnThemTokens extension icon. Bob’s existing photo artwork is the AIClickThatShit icon, shown in its desktop window and the extension’s mouse-control section. These reuse the existing pet images.
+
+Opening the standalone AIClickThatShit app automatically starts screen and mouse control. No initial Turn on click is required. Turn off stops control for that open session; Turn on lets you resume it. OS permission requirements still apply.
