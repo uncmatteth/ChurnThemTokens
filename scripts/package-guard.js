@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
-const top = new Set(['.gitignore', 'AGENTS.md', 'README.md', 'TESTING.md', 'SECURITY.md', 'PRIVACY.md', 'LICENSE', 'package.json', 'core.js', 'transport.js', 'cli.js', 'native.js', 'install.js', 'ui_backend.py', 'requirements-ui.txt']);
+const top = new Set(['.gitignore', 'AGENTS.md', 'README.md', 'TESTING.md', 'SECURITY.md', 'PRIVACY.md', 'LICENSE', 'package.json', 'core.js', 'transport.js', 'cli.js', 'native.js', 'install.js', 'ui_backend.py', 'desktop_companion.py', 'wayland_portal.py', 'requirements-ui.txt']);
 const allowed = name => top.has(name) || /^browser-relay\/(?:manifest\.json|icon128\.png|(?:worker|content|protocol|popup|setup)\.js|popup\.(?:html|css))$/.test(name) || /^test\/[a-z0-9_.-]+\.(?:js|py)$/.test(name) || ['scripts/package-guard.js', 'scripts/build-webstore.py', 'scripts/build-icon.py', 'skills/churn-them-tokens/SKILL.md', 'skills/churn-them-tokens/agents/openai.yaml'].includes(name);
 const blockers = [];
 function walk(directory, prefix = '') {

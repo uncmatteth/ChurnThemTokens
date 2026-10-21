@@ -43,7 +43,7 @@ test('agent installer refuses registration conflicts before creating configurati
 test('installer rejects unsafe roots, unsupported platforms and malformed options', async t => {
   const f = fixture(t);
   await assert.rejects(install({ ...f.options, roots: [`all=${os.homedir()}`] }, f.environment), /Whole-home/);
-  await assert.rejects(install(f.options, { ...f.environment, platform: 'win32' }), /Linux and macOS/);
+  await assert.rejects(install(f.options, { ...f.environment, platform: 'freebsd' }), /Linux, macOS and Windows/);
   for (const argv of [['--config'], ['--root', '--allow-write'], ['--unknown']]) assert.throws(() => optionsFor(argv));
   assert.equal(fs.existsSync(f.config), false);
 });
@@ -69,4 +69,13 @@ test('native setup uses the correct macOS Chrome registration directory', t => {
   const plan = native.plan({ config: f.config, settings, platform: 'darwin', home: f.home });
   assert.equal(plan.host_manifest, path.join(f.home, 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts', 'com.chatgpt.local_bridge.json'));
   assert.equal(native.install(plan, true).dry_run, true); assert.equal(fs.existsSync(f.home), false);
+});
+test('native setup plans a private Windows host and current-user registration', t => {
+  const config = 'C:\\Users\\Tommy\\AppData\\Local\\ChurnThemTokens\\config.json';
+  const settings = { stateDir: 'C:\\Users\\Tommy\\AppData\\Local\\ChurnThemTokens\\state', projects: [{ id: 'project', path: 'C:\\work' }] };
+  const plan = native.plan({ config, settings, platform: 'win32', node: 'C:\\Program Files\\nodejs\\node.exe' });
+  assert.equal(plan.registry_key, 'HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.chatgpt.local_bridge');
+  assert.equal(plan.host_manifest, 'C:\\Users\\Tommy\\AppData\\Local\\ChurnThemTokens\\state\\com.chatgpt.local_bridge.json');
+  assert.match(plan.files[0].content, /@echo off/);
+  assert.match(plan.files[0].content, /"%~1"/);
 });

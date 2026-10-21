@@ -28,6 +28,7 @@ textarea { display: block; width: 100%; resize: vertical; border: 1px solid #aab
 .hint, footer { font-size: 12px; }
 #error { padding: 12px; background: #fff1ea; border: 1px solid #edbba4; border-radius: 8px; color: #853a1d; overflow-wrap: anywhere; }
 #completion { white-space: pre-wrap; overflow-wrap: anywhere; }
+#desktop-error { color: #853a1d; overflow-wrap: anywhere; }
 footer { border-top: 1px solid #d6dee5; padding-top: 12px; margin-top: 12px; }
 @media (prefers-color-scheme: dark) {
   :root { color: #edf2f7; background: #182026; }

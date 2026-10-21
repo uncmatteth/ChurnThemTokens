@@ -1,6 +1,6 @@
 {
   "name": "churn-them-tokens",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Give your existing ChatGPT Pro web chat local computer tools. No Codex model calls.",
   "type": "commonjs",
@@ -27,6 +27,8 @@
     "skills/churn-them-tokens/",
     "browser-relay/",
     "ui_backend.py",
+    "desktop_companion.py",
+    "wayland_portal.py",
     "requirements-ui.txt",
     "README.md",
     "SECURITY.md",

@@ -5,7 +5,7 @@ on your computer. The extension reads that chat's visible model selection and
 the tool requests in its page. It sends requests to the local helper through
 Chrome native messaging, then inserts the helper's results into that same
 ChatGPT conversation. The results can contain file paths, file contents, command
-output, and other project information. ChatGPT receives whatever the extension
+output, desktop screenshots, and other project information. ChatGPT receives whatever the extension
 inserts into your chat under your existing account.
 
 The extension does not send this information to a ChurnThemTokens server. It
@@ -19,6 +19,9 @@ contain the operation, time, argument digest, and status; job output and backup
 files may contain project data. The helper does not automatically purge this
 local state. You control which project folders and tool permissions it gets.
 Shell commands run as your OS user and can reach beyond the approved folders.
+If desktop control is enabled, the system asks which monitor and input devices
+to share. The local screen session ends when you stop sharing or disconnect;
+the selected screenshots sent into your chat remain in that conversation.
 
 Disconnecting stops the helper's owned jobs and ends that chat's connection.
 Deleting local state or ChatGPT conversation history is a separate action under

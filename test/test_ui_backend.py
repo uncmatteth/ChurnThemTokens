@@ -17,6 +17,7 @@ class DesktopValidation(unittest.TestCase):
         self.backend.gui = self.gui
         self.env = patch.dict(os.environ, {}, clear=True)
         self.env.start()
+        self.backend.desktop_started = True
     def tearDown(self):
         self.env.stop()
     def test_click_uses_native_coordinates(self):
@@ -59,12 +60,47 @@ class DesktopValidation(unittest.TestCase):
                 self.backend.desktop({"operation": "type", "text": "A" * 300})
             self.backend.desktop({"operation": "type", "text": "A" * 200})
         self.gui.write.assert_called_once_with("A" * 200, interval=0.01)
-    def test_wayland_fails_explicitly(self):
+    def test_wayland_needs_an_active_portal_before_input(self):
+        self.backend.portal = Mock()
+        self.backend.portal.status.return_value = {"active": False, "wayland": True}
+        self.backend.portal.require_active.side_effect = ValueError("Desktop sharing is stopped")
         with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
-            with self.assertRaisesRegex(ValueError, "Wayland"):
-                self.backend.desktop({"operation": "status"})
+            self.assertFalse(self.backend.desktop({"operation": "status"})["active"])
+            with self.assertRaisesRegex(ValueError, "stopped"):
+                self.backend.desktop({"operation": "click", "x": 10, "y": 20})
+        self.backend.portal.move.assert_not_called()
+    def test_wayland_start_click_and_stop_use_owned_portal(self):
+        self.backend.portal = Mock()
+        self.backend.portal.start.return_value = {"active": True, "wayland": True}
+        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
+            self.assertTrue(self.backend.desktop({"operation": "start"})["active"])
+            self.backend.desktop({"operation": "click", "x": 10, "y": 20})
+            self.backend.desktop({"operation": "stop"})
+        self.backend.portal.move.assert_called_once_with(10, 20)
+        self.assertEqual(self.backend.portal.button.call_args_list, [
+            unittest.mock.call("left", True), unittest.mock.call("left", False)])
+        self.backend.portal.stop.assert_called_once()
+    def test_wayland_drag_releases_button_after_failed_move(self):
+        self.backend.portal = Mock()
+        self.backend.portal.move.side_effect = ValueError("outside the selected monitor")
+        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
+            with self.assertRaisesRegex(ValueError, "outside"):
+                self.backend.desktop({"operation": "drag", "x": 65535, "y": 1})
+        self.assertEqual(self.backend.portal.button.call_args_list, [
+            unittest.mock.call("left", True), unittest.mock.call("left", False)])
     def test_status_does_not_claim_multiple_monitors(self):
         self.assertTrue(self.backend.desktop({"operation": "status"})["primary_display_only"])
+    def test_start_requires_a_real_frame_before_input(self):
+        self.backend.desktop_started = False
+        self.assertFalse(self.backend.desktop({"operation": "status"})["active"])
+        with self.assertRaisesRegex(ValueError, "stopped"):
+            self.backend.desktop({"operation": "click", "x": 10, "y": 20})
+        self.gui.screenshot.side_effect = RuntimeError("no frame")
+        with self.assertRaises(RuntimeError):
+            self.backend.desktop({"operation": "start"})
+        self.assertFalse(self.backend.desktop({"operation": "status"})["active"])
+        self.gui.screenshot.side_effect = None
+        self.assertTrue(self.backend.desktop({"operation": "start"})["active"])
 
 
 @unittest.skipUnless(os.environ.get("BRIDGEBRAIN_UI_TESTS") == "1", "Optional real Chromium test")

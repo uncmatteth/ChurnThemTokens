@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const manifest = require('./manifest.json');
 const { jsonRead, privateDir } = require('../core');
 const HOST = 'com.chatgpt.local_bridge';
@@ -14,18 +15,30 @@ function extensionId() {
 }
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 function plan({ config, home = os.homedir(), platform = process.platform, node = process.execPath, profileDirectory, settings: providedSettings } = {}) {
-  if (!['linux', 'darwin'].includes(platform)) throw new Error('Native-host installation currently supports Linux and macOS Chrome.');
-  if (!config || !path.isAbsolute(config)) throw new Error('Supply the absolute path to the local executor config.');
+  if (!['linux', 'darwin', 'win32'].includes(platform)) throw new Error('Native-host installation supports Linux, macOS and Windows Chrome.');
+  const p = platform === 'win32' ? path.win32 : path;
+  if (!config || !p.isAbsolute(config)) throw new Error('Supply the absolute path to the local executor config.');
   const settings = providedSettings || jsonRead(config, null);
   if (!settings?.stateDir || !settings.projects?.length) throw new Error('Initialize an executor with explicit project roots first.');
   const id = extensionId();
-  const wrapper = path.join(settings.stateDir, 'browser-relay-host');
+  const wrapper = p.join(settings.stateDir, platform === 'win32' ? 'browser-relay-host.cmd' : 'browser-relay-host');
   const chromeDirectory = platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'Google', 'Chrome') : path.join(home, '.config', 'google-chrome');
-  const hostManifest = path.join(profileDirectory || chromeDirectory, 'NativeMessagingHosts', HOST + '.json');
+  const hostManifest = platform === 'win32' ? p.join(settings.stateDir, HOST + '.json') : path.join(profileDirectory || chromeDirectory, 'NativeMessagingHosts', HOST + '.json');
   const cli = path.resolve(__dirname, '..', 'cli.js');
-  const script = `#!/bin/sh\nexec ${quote(node)} ${quote(cli)} serve --native --config ${quote(config)} "$@"\n`;
+  const script = platform === 'win32' ? `@echo off\r\nsetlocal DisableDelayedExpansion\r\n"${node.replaceAll('%', '%%')}" "${cli.replaceAll('%', '%%')}" serve --native --config "${config.replaceAll('%', '%%')}" "%~1"\r\n` : `#!/bin/sh\nexec ${quote(node)} ${quote(cli)} serve --native --config ${quote(config)} "$@"\n`;
   const registration = JSON.stringify({ name: HOST, description: 'ChurnThemTokens local computer tools', path: wrapper, type: 'stdio', allowed_origins: [`chrome-extension://${id}/`] }, null, 2) + '\n';
-  return { extension_id: id, extension_directory: __dirname, wrapper, host_manifest: hostManifest, files: [{ path: wrapper, content: script, mode: 0o700 }, { path: hostManifest, content: registration, mode: 0o600 }] };
+  return { extension_id: id, extension_directory: __dirname, wrapper, host_manifest: hostManifest, platform, registry_key: platform === 'win32' ? `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST}` : null, files: [{ path: wrapper, content: script, mode: 0o700 }, { path: hostManifest, content: registration, mode: 0o600 }] };
+}
+function registryValue(key) {
+  const result = spawnSync('reg.exe', ['query', key, '/ve'], { encoding: 'utf8', windowsHide: true });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    if (/unable to find|not found/i.test(result.stderr + result.stdout)) return null;
+    throw new Error('Could not inspect the existing Chrome native-host registration.');
+  }
+  const match = /REG_SZ\s+([^\r\n]+)/i.exec(result.stdout);
+  if (!match) throw new Error('Could not parse the existing Chrome native-host registration.');
+  return match[1].trim();
 }
 function install(value, dryRun = true) {
   // Only our exact pre-store registration may be migrated. An unrelated or
@@ -38,6 +51,10 @@ function install(value, dryRun = true) {
       const existing = stat.isFile() && !stat.isSymbolicLink() ? fs.readFileSync(file.path, 'utf8') : null;
       if (existing !== file.content && !(file.path === value.host_manifest && existing === priorRegistration)) throw new Error('An existing native-host file differs; it was not overwritten.');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  if (value.registry_key && process.platform === 'win32') {
+    const existing = registryValue(value.registry_key);
+    if (existing && existing.toLowerCase() !== value.host_manifest.toLowerCase()) throw new Error('An existing Chrome native-host registry key differs; it was not overwritten.');
   }
   if (!dryRun) for (const file of value.files) {
     privateDir(path.dirname(file.path));
@@ -59,6 +76,11 @@ function install(value, dryRun = true) {
       continue;
     }
     fs.writeFileSync(file.path, file.content, { mode: file.mode, flag: 'wx' });
+  }
+  if (!dryRun && value.registry_key) {
+    if (process.platform !== 'win32') throw new Error('Windows registration must run on Windows.');
+    const result = spawnSync('reg.exe', ['add', value.registry_key, '/ve', '/t', 'REG_SZ', '/d', value.host_manifest, '/f'], { encoding: 'utf8', windowsHide: true });
+    if (result.error || result.status !== 0) throw new Error('Chrome native-host registry registration failed.');
   }
   return { dry_run: dryRun, extension_id: value.extension_id, extension_directory: value.extension_directory, native_host_manifest: value.host_manifest, notice: 'The local helper is registered. Open the Chrome Web Store listing for this extension ID in the intended Chrome profile, then connect the authorized Pro chat.' };
 }

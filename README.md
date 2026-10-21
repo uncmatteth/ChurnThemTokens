@@ -1,7 +1,9 @@
 # ChurnThemTokens
 
 I already pay for ChatGPT Pro. I want it to work on my computer the way Codex
-does: read files, make changes and run commands.
+does: read files, make changes and run commands. Sometimes the job also needs
+someone to look at the screen and click something. That part is called
+**AIClickThatShit**, and it is an optional part of ChurnThemTokens.
 
 That's what I'm building here. A Chrome extension passes requests from your
 Pro chat to a helper on your computer, then sends the results back. Your login
@@ -56,8 +58,9 @@ has these controls:
 
 1. Open your ChatGPT chat and select the Pro model.
 2. Open **ChurnThemTokens**, read its data disclosure, and click **Agree & connect this Pro chat**.
-3. Check the computer and folders shown, enter the task, and click **Allow tools & run task**.
-4. Click **Disconnect & stop** when you're finished.
+3. Check the computer and folders shown. **AIClickThatShit** starts by default when desktop access is enabled locally. Turn it off if you only want file and command work.
+4. Enter the task and click **Allow tools & run task**.
+5. Click **Disconnect & stop** when you're finished.
 
 You can ask your agent to handle these steps too.
 
@@ -68,9 +71,74 @@ You can ask your agent to handle these steps too.
 - Inspect Git and create separate worktrees.
 - Optional browser and desktop tools ([requirements](requirements-ui.txt)).
 
-The installer supports Chrome on Linux and macOS. There's no Windows installer
-yet. Results sent back to the chat are text only; images aren't attached yet.
-Desktop tools need X11 on Linux. Wayland isn't supported.
+## AIClickThatShit: the optional mouse app
+
+Some jobs need more than files and a terminal: inspect a window, click a button,
+type into an app, or check what actually appeared on screen. AIClickThatShit is
+the screen, mouse and keyboard part of this project. It is included in this
+repository and uses the same local helper and connected Pro chat. It does not
+have a separate AI login or make its own model calls.
+
+Here is how the parts fit together:
+
+| Part | What it does |
+| --- | --- |
+| Your ChatGPT Pro chat | Reads the task and requests actions. |
+| ChurnThemTokens Chrome extension | Connects that chat to your computer and returns tool results. |
+| Local helper | Runs the approved file, command and optional UI tools. |
+| AIClickThatShit | Supplies screen images and mouse/keyboard actions when you turn it on. |
+
+**It is on by default when desktop access is enabled in the local helper.**
+Connecting the Pro chat starts the desktop sharing request. You can turn it off
+and continue using ChurnThemTokens for files and commands. If the local helper has desktop
+access enabled, the extension shows these controls:
+
+- **Turn on AIClickThatShit** starts screen sharing and mouse/keyboard access.
+  Approve the operating system's sharing prompt if one appears.
+- **Turn off AIClickThatShit** stops the extension's desktop sharing session.
+  The Pro chat stays connected for file and command work.
+- **Disconnect & stop** closes the extension's helper session and stops its
+  owned jobs, including desktop sharing.
+
+Pro cannot enable desktop access through a desktop tool request; enabling it
+is a panel action. Turning it off blocks subsequent desktop requests through
+that relay. This controls the desktop tool, not the scope of shell commands:
+commands still run as your OS user.
+
+Screen images are attached to the same connected ChatGPT chat when its image
+attachment control is available. Anything visible in those images is shared
+with ChatGPT under your account. See [PRIVACY.md](PRIVACY.md).
+
+There is also a standalone AIClickThatShit window with on/off buttons, a screen
+preview and a coordinate click control. It is useful for checking local screen
+and mouse access. It has its own sharing session, so stop it in that window;
+disconnecting the extension does not close a separately opened standalone app.
+Opening this window alone does not connect Pro or prove a Pro-directed click.
+
+**Live verification is still outstanding:** a real Pro chat must request a
+harmless click, receive the result in that same chat, and disconnect cleanly.
+Local tests and a working standalone window do not establish that result.
+
+<details>
+<summary>AIClickThatShit setup details for agents</summary>
+
+The native helper supports Linux, macOS and Windows. Include `--allow-desktop`
+in the installer's dry run and installation only when desktop access is wanted.
+With that local permission enabled, connecting the chat starts AIClickThatShit
+by default. The operating system may still require sharing approval. Users can
+choose **Turn off AIClickThatShit** without disconnecting file and command tools.
+
+The optional dependencies are listed in [requirements-ui.txt](requirements-ui.txt).
+Linux uses system GI, GStreamer/PipeWire and Pillow on Wayland, or PyAutoGUI on
+X11. macOS and Windows use PyAutoGUI and Pillow and may require screen/input
+permissions. Packaged builds must be built on the target operating system.
+
+To open the standalone window from this checkout, run
+`python3 desktop_companion.py` on Linux/macOS or `python desktop_companion.py`
+on Windows after installing the platform dependencies. The existing source
+filename is retained for installer compatibility; the app is named AIClickThatShit.
+
+</details>
 
 ## Tokens
 

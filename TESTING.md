@@ -20,6 +20,7 @@ Optional Python browser tests use the pinned requirements in
 `requirements-ui.txt`, `BRIDGEBRAIN_UI_TESTS=1` and optionally
 `BRIDGEBRAIN_TEST_CHROMIUM=/path/to/chromium`. Missing optional dependencies
 produce explicit skips. Desktop validation tests use mocks, not a real mouse.
+Wayland portal tests do not approve a real OS sharing dialog.
 
 The native tests execute actual file operations and child commands and check
 their hashes and exit status. Installer tests use temporary private directories
@@ -30,3 +31,5 @@ A live acceptance check is separate: the actual selected Pro model must request
 file create/read/delete and a harmless command; matching real receipts and the
 command's exit status must return to that same chat. Do not infer this from a
 local doctor, native handshake, test fixture or extension icon.
+For desktop acceptance, also observe a real shared frame, an image attachment
+in that same chat, and an intended mouse/keyboard action on a harmless target.

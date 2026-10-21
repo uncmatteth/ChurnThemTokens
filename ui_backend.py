@@ -17,6 +17,7 @@ def doctor():
         "playwright_installed": importlib.util.find_spec("playwright") is not None,
         "pyautogui_installed": importlib.util.find_spec("pyautogui") is not None,
         "pillow_installed": importlib.util.find_spec("PIL") is not None,
+        "wayland_portal_libraries_installed": importlib.util.find_spec("gi") is not None,
         "wayland_detected": bool(os.environ.get("WAYLAND_DISPLAY")),
         "display_detected": bool(os.environ.get("DISPLAY")) or sys.platform in ("darwin", "win32"),
         "browser_and_desktop_live_verification": "not performed by doctor",
@@ -26,9 +27,15 @@ def doctor():
 def image_result(image):
     width, height = image.size
     image = image.convert("RGB")
-    image.thumbnail((1920, 1920))
-    output = io.BytesIO()
-    image.save(output, format="JPEG", quality=75)
+    image.thumbnail((1600, 1600))
+    # Chrome native messaging responses are capped at 1 MiB including base64.
+    # Keep the image well below that limit even for noisy/high-detail screens.
+    while True:
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=72)
+        if output.tell() <= 650_000 or max(image.size) <= 480:
+            break
+        image.thumbnail((int(image.width * .8), int(image.height * .8)))
     return {
         "_image": base64.b64encode(output.getvalue()).decode("ascii"),
         "mimeType": "image/jpeg",
@@ -48,6 +55,8 @@ class Backend:
         self.pages = {}
         self.next_tab = 0
         self.gui = None
+        self.portal = None
+        self.desktop_started = False
 
     def tab(self, identifier=None):
         if not self.context:
@@ -166,16 +175,26 @@ class Backend:
 
     def desktop(self, a):
         if os.environ.get("WAYLAND_DISPLAY"):
-            raise ValueError("This desktop backend does not support Wayland. Use an X11 session or another explicitly authorized backend.")
+            return self.wayland_desktop(a)
+        op = a["operation"]
+        if op == "stop":
+            self.desktop_started = False
+            return {"stopped": True, "wayland": False}
+        if not self.desktop_started and op not in ("start", "status"):
+            raise ValueError("Desktop sharing is stopped. Call desktop start")
         if self.gui is None:
             import pyautogui
             self.gui = pyautogui
             self.gui.FAILSAFE = True
         gui = self.gui
-        op = a["operation"]
+        if op == "start":
+            # A real frame is required before the extension labels this ready.
+            gui.screenshot()
+            self.desktop_started = True
+            op = "status"
         width, height = gui.size()
         if op == "status":
-            return {"width": width, "height": height, "failsafe": True, "primary_display_only": True}
+            return {"active": self.desktop_started, "width": width, "height": height, "failsafe": True, "primary_display_only": True}
         if op == "screenshot":
             return image_result(gui.screenshot())
         if op in ("move", "click", "double_click", "drag"):
@@ -215,6 +234,73 @@ class Backend:
             raise ValueError("Unsupported desktop operation")
         return {"operation": op, "completed": True}
 
+    def wayland_desktop(self, a):
+        if self.portal is None:
+            from wayland_portal import WaylandPortal
+            self.portal = WaylandPortal()
+        portal = self.portal
+        op = a["operation"]
+        if op == "status":
+            return portal.status()
+        if op == "start":
+            return portal.start()
+        if op == "stop":
+            portal.stop()
+            return {"stopped": True, "wayland": True}
+        if op == "screenshot":
+            return image_result(portal.screenshot())
+        portal.require_active()
+        if op in ("move", "click", "double_click", "drag"):
+            if op == "drag":
+                # Match dragTo: drag from the current pointer position.
+                portal.check_point(a["x"], a["y"])
+                portal.button(a.get("button", "left"), True)
+                try:
+                    portal.move(a["x"], a["y"])
+                finally:
+                    portal.button(a.get("button", "left"), False)
+            else:
+                portal.move(a["x"], a["y"])
+            if op in ("click", "double_click"):
+                for _ in range(2 if op == "double_click" else 1):
+                    portal.button(a.get("button", "left"), True)
+                    portal.button(a.get("button", "left"), False)
+        elif op == "scroll":
+            amount = a.get("amount", 1)
+            if not isinstance(amount, int) or not -100 <= amount <= 100:
+                raise ValueError("Scroll amount must be an integer from -100 to 100")
+            portal.notify("NotifyPointerAxisDiscrete", "(oa{sv}ui)", (0, -amount), 2)
+        elif op == "press":
+            portal.key(a["key"], True)
+            portal.key(a["key"], False)
+        elif op == "hotkey":
+            keys = a["keys"]
+            if not keys or len(keys) > 8:
+                raise ValueError("Hotkey needs 1 to 8 keys")
+            held = []
+            try:
+                for key in keys:
+                    portal.key(key, True)
+                    held.append(key)
+            finally:
+                for key in reversed(held):
+                    portal.key(key, False)
+        elif op == "type":
+            value = a["text"]
+            if not value.isascii() or len(value) > 256 or any(ord(char) < 32 and char not in "\n\r\t" for char in value):
+                raise ValueError("Wayland typing needs ASCII chunks of at most 256 characters")
+            for character in value:
+                portal.key(character, True)
+                portal.key(character, False)
+        else:
+            raise ValueError("Unsupported desktop operation")
+        return {"operation": op, "completed": True}
+
+    def close(self):
+        if self.portal is not None:
+            self.portal.stop()
+        self.close_browser()
+
     def close_browser(self):
         if self.context:
             self.context.close()
@@ -228,16 +314,7 @@ class Backend:
         self.pages = {}
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--state")
-    parser.add_argument("--chromium-executable")
-    parser.add_argument("--doctor", action="store_true")
-    args = parser.parse_args()
-    if args.doctor:
-        print(json.dumps(doctor()))
-        return
-    backend = Backend(args.state, args.chromium_executable)
+def serve(backend):
     try:
         for line in sys.stdin:
             if len(line) > 4 * 1024 * 1024:
@@ -254,7 +331,19 @@ def main():
                 response = {"id": message.get("id"), "error": f"{type(error).__name__}: {detail}"}
             print(json.dumps(response), flush=True)
     finally:
-        backend.close_browser()
+        backend.close()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--state")
+    parser.add_argument("--chromium-executable")
+    parser.add_argument("--doctor", action="store_true")
+    args = parser.parse_args()
+    if args.doctor:
+        print(json.dumps(doctor()))
+        return
+    serve(Backend(args.state, args.chromium_executable))
 
 
 if __name__ == "__main__":
