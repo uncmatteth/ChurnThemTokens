@@ -1,5 +1,5 @@
 'use strict';
-const elements = Object.fromEntries(['status', 'connect', 'error', 'task-panel', 'permissions', 'roots', 'task', 'start', 'check', 'check-help', 'completion', 'stop'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['status', 'connect', 'error', 'task-panel', 'permissions', 'roots', 'desktop-panel', 'desktop-status', 'desktop-share', 'desktop-stop', 'desktop-error', 'task', 'start', 'check', 'check-help', 'completion', 'stop'].map(id => [id, document.getElementById(id)]));
 const QUICK_CHECK = 'Verify this bridge: identify the machine and approved roots, create a uniquely named harmless test file in an approved root, read it back, delete it with its hash, then run a harmless command and read its real exit status. Report only observed results.';
 let current = { connected: false }, busy = false, actionError = '', nextRequest = 0;
 function friendlyError(message) {
@@ -22,6 +22,16 @@ function render() {
   elements.roots.replaceChildren(...(current.projects || []).map(project => {
     const item = document.createElement('li'); item.textContent = `${project.id}: ${project.root}`; return item;
   }));
+  elements['desktop-panel'].hidden = !connected || !permissions.desktop;
+  const sharing = current.desktop?.active === true;
+  const pending = current.desktopPending === true;
+  elements['desktop-status'].textContent = sharing ? 'Desktop shared · mouse and keyboard ready' : pending ? 'Waiting for the computer’s Share dialog…' : 'Desktop is not shared';
+  elements['desktop-share'].hidden = sharing;
+  elements['desktop-share'].disabled = busy || pending;
+  elements['desktop-stop'].hidden = !sharing;
+  elements['desktop-stop'].disabled = busy || pending;
+  elements['desktop-error'].hidden = !current.desktopError;
+  elements['desktop-error'].textContent = current.desktopError || '';
   elements.task.disabled = busy || running;
   elements.start.disabled = busy || !connected || running || !elements.task.value.trim();
   elements.check.disabled = busy || !connected || running;
@@ -42,6 +52,8 @@ elements.connect.addEventListener('click', () => request('connect'));
 // Each labelled button authorizes the displayed access for this task.
 elements.start.addEventListener('click', () => request('start', { task: elements.task.value, consent: true }));
 elements.check.addEventListener('click', () => request('start', { task: QUICK_CHECK, consent: true }));
+elements['desktop-share'].addEventListener('click', () => request('desktop-start'));
+elements['desktop-stop'].addEventListener('click', () => request('desktop-stop'));
 elements.stop.addEventListener('click', () => request('stop'));
 elements.task.addEventListener('input', render);
 request('status');

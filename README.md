@@ -68,9 +68,25 @@ You can ask your agent to handle these steps too.
 - Inspect Git and create separate worktrees.
 - Optional browser and desktop tools ([requirements](requirements-ui.txt)).
 
-The installer supports Chrome on Linux and macOS. There's no Windows installer
-yet. Results sent back to the chat are text only; images aren't attached yet.
-Desktop tools need X11 on Linux. Wayland isn't supported.
+The installer registers the Chrome native helper on Linux, macOS and Windows.
+The separate **ChurnThemTokens Desktop** app opens as a normal window with
+Start sharing, Show screen, Stop sharing and Click X, Y controls. Run
+`python3 desktop_companion.py` on Linux/macOS or `python desktop_companion.py`
+on Windows after installing the optional UI dependencies. The extension starts
+its own instance of this companion when you click **Agree & connect this Pro
+chat**; if desktop tools are enabled, it requests local screen and mouse access
+and displays the resulting status. Its **Share desktop for mouse control** and
+**Stop desktop sharing** buttons manage that extension session. The standalone
+window is for direct local use and has its own session.
+
+The computer's operating system may ask for screen and input permission.
+Screenshots are attached to the connected ChatGPT chat when its attachment
+control is available. **Disconnect & stop** closes the extension's session.
+The desktop tool also offers `start`, `status` and `stop` actions. Linux
+desktop sharing needs system GI, GStreamer/PipeWire and Pillow on Wayland, or
+PyAutoGUI on X11. macOS and Windows use PyAutoGUI and Pillow, and may require
+their own screen/input permissions. Builds for each operating system must be
+made on that operating system.
 
 ## Tokens
 

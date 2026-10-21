@@ -5,7 +5,7 @@ let session = null, connecting = false, nextId = 0;
 const pending = new Map();
 function summary() {
   if (!session) return { connected: false };
-  return { connected: true, running: session.running, hostname: session.identity.hostname, permissions: session.identity.permissions, projects: session.projects, model: session.model, sequence: session.sequence, steps: session.steps, error: session.error || null, completion: session.completion || null };
+  return { connected: true, running: session.running, hostname: session.identity.hostname, permissions: session.identity.permissions, projects: session.projects, model: session.model, sequence: session.sequence, steps: session.steps, error: session.error || null, completion: session.completion || null, desktop: session.desktop || null, desktopPending: !!session.desktopPending, desktopError: session.desktopError || null };
 }
 function close() {
   const previous = session; session = null;
@@ -31,6 +31,29 @@ function textValue(result) {
   if (result.isError) throw new Error(result.content?.[0]?.text || 'Local tool failed.');
   return JSON.parse(result.content.find(c => c.type === 'text').text);
 }
+async function desktopStart() {
+  const current = session;
+  if (!current?.identity.permissions?.desktop) throw new Error('Desktop control is not enabled in this local helper.');
+  if (current.desktopPending) return summary();
+  current.desktopPending = true; current.desktopError = null;
+  try {
+    const result = textValue(await tool('desktop', { operation: 'start' }));
+    if (session !== current) throw new Error('Bridge disconnected while desktop sharing started.');
+    current.desktop = result;
+    return summary();
+  } catch (error) {
+    if (session === current) { current.desktop = { active: false }; current.desktopError = error.message; }
+    throw error;
+  } finally { current.desktopPending = false; }
+}
+async function desktopStop() {
+  if (!session?.identity.permissions?.desktop) throw new Error('Desktop control is not enabled in this local helper.');
+  const current = session;
+  if (current.desktopPending) throw new Error('Wait for the system sharing prompt to finish.');
+  textValue(await tool('desktop', { operation: 'stop' }));
+  if (session === current) { current.desktop = { active: false }; current.desktopError = null; }
+  return summary();
+}
 async function connect(tabId) {
   if (connecting || session) throw new Error('Disconnect the existing session first.');
   connecting = true;
@@ -40,7 +63,7 @@ async function connect(tabId) {
     const probe = await chrome.tabs.sendMessage(tabId, { kind: 'bridge-probe' });
     if (!probe.proModel) throw new Error(`Select the actual Pro model first. Current visible model label: ${probe.model || 'unavailable'}.`);
     const port = chrome.runtime.connectNative(HOST);
-    session = { tabId, path: LocalBridgeProtocol.chatUrl(tab.url).pathname, port, identity: {}, projects: [], tools: [], model: probe.model, running: false, run: crypto.randomUUID(), sequence: 1, steps: 0, busy: false };
+    session = { tabId, path: LocalBridgeProtocol.chatUrl(tab.url).pathname, port, identity: {}, projects: [], tools: [], model: probe.model, running: false, run: crypto.randomUUID(), sequence: 1, steps: 0, busy: false, desktop: null, desktopPending: false, desktopError: null };
     port.onMessage.addListener(message => {
       const wait = pending.get(message.id); if (!wait) return;
       pending.delete(message.id); clearTimeout(wait.timer);
@@ -54,6 +77,9 @@ async function connect(tabId) {
     session.identity = textValue(await tool('bridge_status'));
     session.projects = textValue(await tool('project_list'));
     session.tools = (await rpc('tools/list')).tools;
+    // One extension connection also requests the temporary OS desktop grant.
+    // A dismissed OS prompt leaves the Pro chat connected and permits retry.
+    if (session.identity.permissions?.desktop) void desktopStart().catch(() => {});
     return summary();
   } catch (error) { close(); throw error; }
   finally { connecting = false; }
@@ -110,6 +136,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.kind === 'status') return summary();
     if (message.kind === 'connect') { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); return connect(tab.id); }
     if (message.kind === 'start') return start(message.task, message.consent);
+    if (message.kind === 'desktop-start') return desktopStart();
+    if (message.kind === 'desktop-stop') return desktopStop();
     if (message.kind === 'stop') { close(); return summary(); }
     throw new Error('Unknown bridge message.');
   };

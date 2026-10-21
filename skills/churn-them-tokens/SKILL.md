@@ -27,10 +27,11 @@ handles setup and connection. The bridge makes no Codex or model API calls.
    node install.js --root project=/absolute/approved/project --allow-write --allow-exec
    ```
 
-   Substitute the authorized root and grant only the access the task needs.
+   Add `--allow-desktop` when the person asks the agent to see and click the
+   computer. Substitute the authorized root and grant only the access the task needs.
    Inspect the dry run first. Reuse matching existing settings; do not replace
-   conflicting settings or another native-host registration. Linux and macOS
-   Chrome are supported; report other platforms as unsupported.
+   conflicting settings or another native-host registration. Linux, macOS and
+   Windows Chrome native-host setup is supported; verify it on the target OS.
 4. Follow the installer's browser steps yourself with supported browser tools.
    Load or reload `browser-relay/` in Chrome. Do not edit browser policies or
    profile databases, restart the browser, or copy authentication files.
@@ -50,8 +51,10 @@ must perform; handle the remaining navigation yourself.
 
 ## Run a task when called
 
-1. Open the extension and choose **Connect this Pro chat**. Check the returned
-   host, allowed folders and permissions against the requested task.
+1. Open the extension and choose **Agree & connect this Pro chat**. When desktop
+   control was granted locally, this also opens the OS screen/input sharing
+   dialog. The person approves that OS prompt on the computer. Check the
+   returned host, allowed folders and permissions against the requested task.
 2. On first use, run **Allow tools & run quick check**. Observe the actual Pro
    chat request the file operations and harmless command, then receive matching
    file hashes and the real exit status. A local doctor or handshake is not this
@@ -71,8 +74,14 @@ file-tool allowlist too. No credential access or unrelated external sends.
 If browser control fails, report the actual error and leave the Pro task
 blocked. Do not substitute a Codex model call, model API, hidden ChatGPT
 endpoint, copied browser session, or your own answer labelled as Pro output.
-The relay currently carries text; images are not attached. Linux desktop tools
-need X11 and do not support Wayland.
+Desktop screenshots are attached to the same ChatGPT chat when its image upload
+control visibly accepts them; if that control changes, the relay stops before
+sending a text-only result. On Wayland the OS grants one monitor and input for
+the temporary helper session. Do not claim live desktop control from a local
+doctor, unit test or share dialog alone; observe an actual frame and input.
+For mouse actions, use the screenshot's native width and height and coordinates
+from that same screen space. Window bounds reported by another process can be
+scaled differently on Windows; verify an intended click on a harmless target.
 
 ## Report
 

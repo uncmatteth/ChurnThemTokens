@@ -9,16 +9,16 @@ const protocol = require('../browser-relay/protocol');
 function worker() {
   let listener, receiver, disconnect;
   const calls = [], posts = [];
-  const context = { pro: true, jobs: [], url: 'https://chatgpt.com/c/fixture' };
+  const context = { pro: true, jobs: [], desktopGrant: false, url: 'https://chatgpt.com/c/fixture' };
   const tools = ['bridge_status', 'project_list', 'job_list', 'file_read'].map(name => ({ name, inputSchema: { type: 'object' } }));
-  const value = name => name === 'bridge_status' ? { hostname: 'test-machine', permissions: { write: false } } : name === 'project_list' ? [{ id: 'sample', root: '/fixture' }] : name === 'job_list' ? context.jobs : { content: 'receipt' };
+  const value = (name, args) => name === 'bridge_status' ? { hostname: 'test-machine', permissions: { write: false, desktop: context.desktopGrant } } : name === 'project_list' ? [{ id: 'sample', root: '/fixture' }] : name === 'job_list' ? context.jobs : name === 'desktop' ? { active: args.operation === 'start', wayland: true } : { content: 'receipt' };
   const port = {
     onMessage: { addListener: fn => { receiver = fn; } },
     onDisconnect: { addListener: fn => { disconnect = fn; } },
     disconnect: () => {},
     postMessage: message => {
       calls.push(message);
-      const result = message.method === 'tools/list' ? { tools } : message.method === 'tools/call' ? { isError: false, content: [{ type: 'text', text: JSON.stringify(value(message.params.name)) }] } : {};
+      const result = message.method === 'tools/list' ? { tools } : message.method === 'tools/call' ? { isError: false, content: [{ type: 'text', text: JSON.stringify(value(message.params.name, message.params.arguments)) }] } : {};
       queueMicrotask(() => receiver({ id: message.id, result }));
     },
   };
@@ -49,6 +49,16 @@ test('relay requires explicit session consent and sends no task without it', asy
   const w = worker(); assert.equal((await w.send({ kind: 'connect' })).ok, true);
   const refused = await w.send({ kind: 'start', task: 'read code', consent: false });
   assert.equal(refused.ok, false); assert.equal(w.posts.some(m => m.kind === 'bridge-start'), false);
+  await w.send({ kind: 'stop' });
+});
+test('desktop grant starts from one connection and only the panel can stop it', async () => {
+  const w = worker(); w.context.desktopGrant = true;
+  assert.equal((await w.send({ kind: 'connect' })).ok, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await w.send({ kind: 'status' })).value.desktop.active, true);
+  assert.equal(w.calls.filter(m => m.params?.name === 'desktop' && m.params.arguments.operation === 'start').length, 1);
+  assert.equal((await w.send({ kind: 'desktop-stop' }, w.content)).ok, false);
+  assert.equal((await w.send({ kind: 'desktop-stop' })).value.desktop.active, false);
   await w.send({ kind: 'stop' });
 });
 test('changing conversations while idle blocks the initial task and private prompt', async () => {

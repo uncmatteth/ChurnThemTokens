@@ -57,6 +57,44 @@ for (const composerType of ['textarea', 'contenteditable', 'current-chat']) test
   assert.match(result.stdout, /id="result">PASS<\/pre>/, result.stdout);
 });
 
+test('real Chrome fixture attaches a desktop frame to the same chat result', { skip: !process.env.BRIDGEBRAIN_RELAY_CHROME }, t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'churn-image-relay-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const fixture = path.join(directory, 'fixture.html');
+  const source = pathToFileURL(path.resolve(__dirname, '../browser-relay/content.js')).href;
+  fs.writeFileSync(fixture, `<!doctype html><header><button data-testid="model-switcher-dropdown-button">GPT Pro</button></header>
+  <form><textarea id="prompt-textarea"></textarea><input id="upload" type="file" accept="image/jpeg,image/png"><button id="send" type="button" data-testid="send-button">Send</button></form><main id="replies"></main><pre id="result">PENDING</pre>
+  <script>
+    let listener; const sent=[], uploads=[], errors=[];
+    window.chrome.runtime={id:'fixture',onMessage:{addListener:fn=>listener=fn},sendMessage:async message=>{
+      if(message.kind==='bridge-page-error'){errors.push(message.error);return {ok:true};}
+      return {ok:true,value:{run:'fixture',sequence:2,result:{isError:false,content:[
+        {type:'text',text:'{"native_width":100,"native_height":100}'},
+        {type:'image',mimeType:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='}
+      ]}}};
+    }};
+    document.querySelector('#upload').addEventListener('change',event=>{
+      uploads.push(event.target.files[0]);
+      const preview=document.createElement('div');preview.dataset.testid='attachment';document.querySelector('form').append(preview);
+    });
+    document.querySelector('#send').onclick=()=>{sent.push(document.querySelector('#prompt-textarea').value);document.querySelector('#prompt-textarea').value='';};
+  </script><script src="${source}"></script><script>
+    const ask=message=>new Promise(resolve=>listener(message,{id:'fixture'},resolve));
+    (async()=>{
+      if(!(await ask({kind:'bridge-start',run:'fixture',path:location.pathname,prompt:'safe prompt'})).started)throw Error('start');
+      const reply=document.createElement('div');reply.dataset.messageAuthorRole='assistant';
+      reply.innerHTML='<pre><code class="language-chatgpt-local-bridge">{"type":"tool"}</code></pre>';
+      document.querySelector('#replies').append(reply);
+      await new Promise(resolve=>setTimeout(resolve,1200));
+      if(errors.length||uploads.length!==1||uploads[0].type!=='image/png'||sent.length!==2||!sent[1].includes('native_width')||sent[1].includes('iVBORw0'))throw Error('image was not attached with the sanitized text receipt');
+      document.querySelector('#result').textContent='PASS';
+    })().catch(error=>document.querySelector('#result').textContent='FAIL: '+error.message);
+  </script>`);
+  const result = spawnSync(process.env.BRIDGEBRAIN_RELAY_CHROME, ['--headless', '--disable-gpu', '--disable-background-networking', '--disable-component-update', '--no-first-run', '--no-default-browser-check', '--user-data-dir=' + path.join(directory, 'isolated-profile'), '--virtual-time-budget=5000', '--dump-dom', pathToFileURL(fixture).href], { encoding: 'utf8', timeout: 25000, maxBuffer: 2 * 1024 * 1024 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /id="result">PASS<\/pre>/, result.stdout);
+});
+
 test('real Chrome popup fixture: simple setup, explicit action consent and useful progress', { skip: !process.env.BRIDGEBRAIN_RELAY_CHROME }, t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'churn-popup-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

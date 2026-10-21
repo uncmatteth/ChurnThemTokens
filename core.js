@@ -44,6 +44,23 @@ function cleanEnv(extra = {}) {
   }
   return env;
 }
+
+function desktopCompanionCommand(config = {}) {
+  const linuxBundle = path.join(os.homedir(), 'Applications', 'ChurnThemTokensDesktop', 'bundle', 'ChurnThemTokensDesktop');
+  if (!config.python && process.platform === 'linux' && fs.existsSync(linuxBundle))
+    return { command: linuxBundle, args: [] };
+  const installed = process.platform === 'win32'
+    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChurnThemTokensDesktop')
+    : process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Applications', 'ChurnThemTokensDesktop')
+      : null;
+  const python = config.python || (installed && fs.existsSync(path.join(installed, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python'))
+    ? path.join(installed, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python')
+    : process.platform === 'win32' ? 'python' : 'python3');
+  const script = installed && fs.existsSync(path.join(installed, 'desktop_companion.py'))
+    ? path.join(installed, 'desktop_companion.py') : path.join(__dirname, 'desktop_companion.py');
+  return { command: python, args: [script] };
+}
 function stopChild(child, force = false) {
   if (!child.pid) return;
   if (process.platform === 'win32') {
@@ -366,7 +383,7 @@ class DirectBridge {
       }
       return this.ui(args);
     });
-    add('desktop', 'Use the optional local GUI backend for screen/mouse/keyboard. Requires a visible session and OS permissions. Linux Wayland is not supported by this backend. Does not grant OpenAI native Computer Use.', obj({ operation: enumeration('status', 'screenshot', 'move', 'click', 'double_click', 'drag', 'scroll', 'press', 'hotkey', 'type'), x: num(0, 65535), y: num(0, 65535), amount: num(-100, 100), key: str(64), keys: arr(str(64), 8), text: str(16384), button: enumeration('left', 'middle', 'right') }, ['operation']), 'desktop', false, a => this.ui({ ...a, kind: 'desktop' }));
+    add('desktop', 'Use the optional local GUI backend for screen/mouse/keyboard. On Wayland, call start and approve the OS share dialog; stop revokes this temporary session. Requires a separate desktop grant. Does not grant OpenAI native Computer Use.', obj({ operation: enumeration('status', 'start', 'stop', 'screenshot', 'move', 'click', 'double_click', 'drag', 'scroll', 'press', 'hotkey', 'type'), x: num(0, 65535), y: num(0, 65535), amount: num(-100, 100), key: str(64), keys: arr(str(64), 8), text: str(16384), button: enumeration('left', 'middle', 'right') }, ['operation']), 'desktop', false, a => this.ui({ ...a, kind: 'desktop' }));
   }
   checkRef(ref) { if (!/^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$/.test(ref) || ref.includes('..') || ref.endsWith('/') || ref.includes('//')) fail('Invalid Git reference'); }
   async git(project, args, readOnly = false) {
@@ -457,7 +474,8 @@ class DirectBridge {
   uiRequest(args) {
     if (this.closing) return Promise.reject(new Error('Bridge is stopped; queued UI actions were cancelled'));
     if (!this.helper) {
-      const child = spawn(this.config.python || (process.platform === 'win32' ? 'python' : 'python3'), [path.join(__dirname, 'ui_backend.py'), '--state', this.state, ...(this.config.chromiumExecutable ? ['--chromium-executable', this.config.chromiumExecutable] : [])], { env: cleanEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
+      const companion = desktopCompanionCommand(this.config);
+      const child = spawn(companion.command, [...companion.args, '--stdio', '--state', this.state, ...(this.config.chromiumExecutable ? ['--chromium-executable', this.config.chromiumExecutable] : [])], { env: cleanEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
       this.helper = child; let buffered = '';
       const dead = () => {
         if (this.helper === child) this.helper = null;
@@ -481,7 +499,7 @@ class DirectBridge {
     }
     return new Promise((resolve, reject) => {
       const id = ++this.helperSeq;
-      const timer = setTimeout(() => { this.helperPending.delete(id); this.helper?.kill(); reject(new Error('UI operation timed out; no successful action is claimed')); }, 45000);
+      const timer = setTimeout(() => { this.helperPending.delete(id); this.helper?.kill(); reject(new Error('UI operation timed out; no successful action is claimed')); }, args.kind === 'desktop' && args.operation === 'start' ? 65000 : 45000);
       this.helperPending.set(id, { resolve, reject, timer });
       this.helper.stdin.write(`${JSON.stringify({ id, ...args })}\n`);
     });
