@@ -25,6 +25,8 @@ def gtk_window(backend):
     gi.require_version("GdkPixbuf", "2.0")
     from gi.repository import Gtk, GdkPixbuf, GLib
 
+    GLib.set_application_name("AIClickThatShit")
+    backend.approval_timeout = None
     window = Gtk.Window(title="AIClickThatShit")
     window.set_default_size(650, 520)
     if ICON.is_file():

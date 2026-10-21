@@ -42,7 +42,7 @@ def unpack(value):
 
 
 class WaylandPortal:
-    def __init__(self, state_directory=None, parent_window=""):
+    def __init__(self, state_directory=None, parent_window="", approval_timeout=120000):
         try:
             import gi
             gi.require_version("Gst", "1.0")
@@ -67,6 +67,7 @@ class WaylandPortal:
         ) / "churn-them-tokens" / "desktop-portal"
         self.permission_remembered = False
         self.parent_window = parent_window
+        self.approval_timeout = approval_timeout
         Gst.init(None)
 
     def permission_file(self):
@@ -131,21 +132,23 @@ class WaylandPortal:
         try:
             handle = self.call(interface, method, signature, values)[0]
             self.request = handle
-            deadline = time.monotonic() + timeout / 1000
+            deadline = time.monotonic() + timeout / 1000 if timeout is not None else None
             context = self.GLib.MainContext.default()
-            while handle not in replies and time.monotonic() < deadline:
+            while handle not in replies and (deadline is None or time.monotonic() < deadline):
+                if self.request != handle:
+                    raise ValueError("Desktop sharing was stopped")
                 while context.pending():
                     context.iteration(False)
                 if handle not in replies:
                     time.sleep(0.02)
             if handle not in replies:
-                raise ValueError("Desktop permission timed out; no screen or input grant was accepted")
+                raise ValueError(f"Desktop {method} response timed out; the sharing session did not finish starting")
             code, result = replies[handle]
             if code != 0:
                 raise ValueError("Desktop permission was cancelled or denied")
             return result
         finally:
-            if handle and handle not in replies:
+            if handle and handle not in replies and self.request == handle:
                 try:
                     self.bus.call_sync(PORTAL, handle, REQUEST, "Close", None, None,
                                        self.Gio.DBusCallFlags.NONE, 2000, None)
@@ -204,7 +207,7 @@ class WaylandPortal:
             }))
             granted = self.request_call(REMOTE, "Start", "(osa{sv})", (self.session, self.parent_window, {
                 "handle_token": V("s", token()),
-            }), timeout=120000)
+            }), timeout=self.approval_timeout)
             # Restore grants rotate on every successful Start. Save the new
             # grant even if frame capture later fails, so a retry can restore.
             replacement = granted.get("restore_token")
