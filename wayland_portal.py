@@ -1,10 +1,13 @@
-"""Temporary, user-approved Wayland screen and input session.
+"""User-approved Wayland screen and input session with portal restoration.
 
 This uses the desktop portal, never compositor private APIs or profile data.
 The owning UI helper keeps the D-Bus session alive and closes it on stop/exit.
 """
 
 import os
+from pathlib import Path
+import stat
+import tempfile
 import time
 import uuid
 
@@ -39,7 +42,7 @@ def unpack(value):
 
 
 class WaylandPortal:
-    def __init__(self):
+    def __init__(self, state_directory=None, parent_window=""):
         try:
             import gi
             gi.require_version("Gst", "1.0")
@@ -59,7 +62,53 @@ class WaylandPortal:
         self.pipe_fd = None
         self.closed = False
         self.closed_subscription = None
+        self.state_directory = Path(state_directory) if state_directory else Path(
+            os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
+        ) / "churn-them-tokens" / "desktop-portal"
+        self.permission_remembered = False
+        self.parent_window = parent_window
         Gst.init(None)
+
+    def permission_file(self):
+        """Keep this app's opaque portal grant private; never log its contents."""
+        self.state_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = self.state_directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError("Desktop permission state must be a private directory owned by this user")
+        return self.state_directory / "restore-token"
+
+    def read_permission(self):
+        file = self.permission_file()
+        try:
+            fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            return None
+        with os.fdopen(fd, "r") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+                raise ValueError("Desktop permission state must be a private regular file")
+            value = source.read(4097)
+        if not value or len(value) > 4096 or "\0" in value:
+            raise ValueError("Invalid desktop permission state; no permission request was started")
+        return value
+
+    def save_permission(self, value):
+        file = self.permission_file()
+        if not isinstance(value, str) or not value or len(value) > 4096 or "\0" in value:
+            raise ValueError("The desktop returned invalid permission state")
+        fd, temporary = tempfile.mkstemp(prefix=".restore-", dir=self.state_directory)
+        try:
+            with os.fdopen(fd, "w") as target:
+                target.write(value)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary, file)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def portal_version(self):
+        return int(unpack(self.call("org.freedesktop.DBus.Properties", "Get", "(ss)", (REMOTE, "version")))[0])
 
     def call(self, interface, method, signature, values, timeout=5000):
         return self.bus.call_sync(
@@ -111,6 +160,22 @@ class WaylandPortal:
     def start(self):
         if self.session and not self.closed:
             return self.status()
+        # Single-use restore grants must not be consumed concurrently by the
+        # standalone window and the native messaging helper.
+        import fcntl
+        file = self.permission_file().with_name("restore-lock")
+        fd = os.open(file, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        with os.fdopen(fd, "r+") as lock:
+            info = os.fstat(lock.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+                raise ValueError("Desktop permission lock must be private")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise ValueError("A desktop permission request is already in progress; no second dialog was opened")
+            return self.start_session()
+
+    def start_session(self):
         self.stop()
         V = self.GLib.Variant
 
@@ -118,6 +183,12 @@ class WaylandPortal:
             return "ctt_" + uuid.uuid4().hex
 
         try:
+            devices_options = {"handle_token": V("s", token()), "types": V("u", 3)}
+            if self.portal_version() >= 2:
+                devices_options["persist_mode"] = V("u", 2)
+                previous = self.read_permission()
+                if previous:
+                    devices_options["restore_token"] = V("s", previous)
             created = self.request_call(REMOTE, "CreateSession", "(a{sv})", ({
                 "handle_token": V("s", token()), "session_handle_token": V("s", token()),
             },))
@@ -126,16 +197,22 @@ class WaylandPortal:
                 PORTAL, SESSION, "Closed", self.session, None,
                 self.Gio.DBusSignalFlags.NONE, self.on_closed,
             )
-            self.request_call(REMOTE, "SelectDevices", "(oa{sv})", (self.session, {
-                "handle_token": V("s", token()), "types": V("u", 3),
-            }))
+            self.request_call(REMOTE, "SelectDevices", "(oa{sv})", (self.session, devices_options))
             self.request_call(CAST, "SelectSources", "(oa{sv})", (self.session, {
                 "handle_token": V("s", token()), "types": V("u", 1),
                 "multiple": V("b", False), "cursor_mode": V("u", 2),
             }))
-            granted = self.request_call(REMOTE, "Start", "(osa{sv})", (self.session, "", {
+            granted = self.request_call(REMOTE, "Start", "(osa{sv})", (self.session, self.parent_window, {
                 "handle_token": V("s", token()),
-            }), timeout=35000)
+            }), timeout=120000)
+            # Restore grants rotate on every successful Start. Save the new
+            # grant even if frame capture later fails, so a retry can restore.
+            replacement = granted.get("restore_token")
+            self.permission_remembered = bool(replacement)
+            if replacement:
+                self.save_permission(replacement)
+            elif self.permission_file().exists():
+                self.permission_file().unlink()
             self.devices = int(granted.get("devices", 0))
             streams = granted.get("streams", [])
             if self.devices != 3 or len(streams) != 1:
@@ -208,7 +285,7 @@ class WaylandPortal:
             return {"active": False, "wayland": True, "consent": "start requires OS approval"}
         return {"active": True, "wayland": True, "width": self.stream_size[0],
                 "height": self.stream_size[1], "primary_display_only": False,
-                "selected_monitor_only": True, "temporary": True}
+                "selected_monitor_only": True, "permission_remembered": self.permission_remembered}
 
     def notify(self, method, signature, values, device):
         self.require_active(device)

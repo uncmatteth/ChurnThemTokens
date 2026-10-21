@@ -83,6 +83,9 @@ def gtk_window(backend):
         Gtk.main_quit()
     window.connect("destroy", close)
     window.show_all()
+    native_window = window.get_window()
+    if hasattr(native_window, "get_xid"):
+        backend.parent_window = f"x11:{native_window.get_xid():x}"
     GLib.idle_add(lambda: (run("start"), False)[1])
     Gtk.main()
 

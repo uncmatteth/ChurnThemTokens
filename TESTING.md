@@ -21,6 +21,13 @@ Optional Python browser tests use the pinned requirements in
 `BRIDGEBRAIN_TEST_CHROMIUM=/path/to/chromium`. Missing optional dependencies
 produce explicit skips. Desktop validation tests use mocks, not a real mouse.
 Wayland portal tests do not approve a real OS sharing dialog.
+Portal restoration tests cover grant rotation across restarts, reuse of an
+active session, capture failure after a grant, unsupported portal versions,
+private storage, and refusal to open duplicate concurrent permission requests.
+For live restoration acceptance, verify a successful shared frame and harmless
+click, stop and reopen once, and verify that control resumes without another
+approval prompt. Unit tests alone cannot establish that the desktop remembered
+permission.
 
 The native tests execute actual file operations and child commands and check
 their hashes and exit status. Installer tests use temporary private directories

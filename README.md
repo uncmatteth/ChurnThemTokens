@@ -86,12 +86,19 @@ Here is how the parts fit together:
 | Your ChatGPT Pro chat | Reads the task and requests actions. |
 | ChurnThemTokens Chrome extension | Connects that chat to your computer and returns tool results. |
 | Local helper | Runs the approved file, command and optional UI tools. |
-| AIClickThatShit | Supplies screen images and mouse/keyboard actions when you turn it on. |
+| AIClickThatShit | Starts by default and supplies screen images and mouse/keyboard actions. |
 
 **It is on by default when desktop access is enabled in the local helper.**
 Connecting the Pro chat starts the desktop sharing request. You can turn it off
 and continue using ChurnThemTokens for files and commands. If the local helper has desktop
 access enabled, the extension shows these controls:
+
+On Wayland portals supporting permission restoration, AIClickThatShit requests
+permission until explicitly revoked and saves the desktop's returned grant
+privately. Reopening restores that grant; an already active session is reused.
+The desktop can still ask again if it did not grant persistence, the permission
+was revoked, or the selected monitor is no longer available. This behavior must
+be verified on the actual desktop before claiming unattended access works.
 
 - **Turn on AIClickThatShit** starts screen sharing and mouse/keyboard access.
   Approve the operating system's sharing prompt if one appears.

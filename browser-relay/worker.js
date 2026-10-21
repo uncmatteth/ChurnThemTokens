@@ -17,7 +17,8 @@ function rpc(method, params = {}) {
   if (!session) return Promise.reject(new Error('Bridge is disconnected.'));
   const id = ++nextId;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Local tool request timed out. Inspect it before retrying.')); }, 65000);
+    const startingDesktop = params.name === 'desktop' && params.arguments?.operation === 'start';
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Local tool request timed out. Inspect it before retrying.')); }, startingDesktop ? 180000 : 65000);
     pending.set(id, { resolve, reject, timer });
     try { session.port.postMessage({ jsonrpc: '2.0', id, method, params }); }
     catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }

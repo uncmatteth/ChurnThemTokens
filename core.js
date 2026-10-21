@@ -47,7 +47,7 @@ function cleanEnv(extra = {}) {
 
 function desktopCompanionCommand(config = {}) {
   const linuxBundle = path.join(os.homedir(), 'Applications', 'ChurnThemTokensDesktop', 'bundle', 'ChurnThemTokensDesktop');
-  if (!config.python && process.platform === 'linux' && fs.existsSync(linuxBundle))
+  if (!config.python && process.platform === 'linux' && fs.existsSync(linuxBundle) && !fs.existsSync(path.join(__dirname, 'desktop_companion.py')))
     return { command: linuxBundle, args: [] };
   const installed = process.platform === 'win32'
     ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChurnThemTokensDesktop')
@@ -499,7 +499,7 @@ class DirectBridge {
     }
     return new Promise((resolve, reject) => {
       const id = ++this.helperSeq;
-      const timer = setTimeout(() => { this.helperPending.delete(id); this.helper?.kill(); reject(new Error('UI operation timed out; no successful action is claimed')); }, args.kind === 'desktop' && args.operation === 'start' ? 65000 : 45000);
+      const timer = setTimeout(() => { this.helperPending.delete(id); this.helper?.kill(); reject(new Error('UI operation timed out; no successful action is claimed')); }, args.kind === 'desktop' && args.operation === 'start' ? 150000 : 45000);
       this.helperPending.set(id, { resolve, reject, timer });
       this.helper.stdin.write(`${JSON.stringify({ id, ...args })}\n`);
     });
