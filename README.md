@@ -96,6 +96,8 @@ access enabled, the extension shows these controls:
 On Wayland portals supporting permission restoration, AIClickThatShit requests
 permission until explicitly revoked and saves the desktop's returned grant
 privately. Reopening restores that grant; an already active session is reused.
+The standalone Linux app keeps its initial sharing request open until you
+complete it or stop control; it does not discard setup after a short timeout.
 The desktop can still ask again if it did not grant persistence, the permission
 was revoked, or the selected monitor is no longer available. This behavior must
 be verified on the actual desktop before claiming unattended access works.

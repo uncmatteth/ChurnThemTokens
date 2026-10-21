@@ -24,6 +24,7 @@ class PortalRestore(unittest.TestCase):
         self.p.session = self.p.sink = None
         self.p.closed = False
         self.p.parent_window = "x11:123"
+        self.p.approval_timeout = None
         self.p.stop = Mock(side_effect=self.clear_session)
         self.p.portal_version = Mock(return_value=2)
         self.p.open_capture = Mock(side_effect=lambda: setattr(self.p, "sink", object()))
@@ -102,3 +103,13 @@ class PortalRestore(unittest.TestCase):
         with self.assertRaises(OSError):
             self.p.start()
         self.p.request_call.assert_not_called()
+
+    def test_pending_standalone_setup_wait_can_be_stopped_without_timeout(self):
+        self.p.call = Mock(return_value=("/fixture/request",))
+        context = self.p.GLib.MainContext.default.return_value
+        context.pending.side_effect = [True, False]
+        context.iteration.side_effect = lambda *args: setattr(self.p, "request", None)
+        self.p.request = None
+        with self.assertRaisesRegex(ValueError, "sharing was stopped"):
+            portal.WaylandPortal.request_call(self.p, portal.REMOTE, "Start", "(osa{sv})", (), timeout=None)
+        self.p.bus.signal_unsubscribe.assert_called_once()
