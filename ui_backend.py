@@ -57,6 +57,7 @@ class Backend:
         self.gui = None
         self.portal = None
         self.desktop_started = False
+        self.parent_window = ""
 
     def tab(self, identifier=None):
         if not self.context:
@@ -237,7 +238,7 @@ class Backend:
     def wayland_desktop(self, a):
         if self.portal is None:
             from wayland_portal import WaylandPortal
-            self.portal = WaylandPortal()
+            self.portal = WaylandPortal(parent_window=self.parent_window)
         portal = self.portal
         op = a["operation"]
         if op == "status":

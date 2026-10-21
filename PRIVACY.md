@@ -22,6 +22,11 @@ Shell commands run as your OS user and can reach beyond the approved folders.
 If desktop control is enabled, the system asks which monitor and input devices
 to share. The local screen session ends when you stop sharing or disconnect;
 the selected screenshots sent into your chat remain in that conversation.
+On supported Wayland desktops, the app requests permission restoration and
+stores only this app's opaque desktop grant in its private local state folder.
+The grant is replaced after restoration and is never included in tool results
+or logs. Turning control off closes the live session; the OS's saved permission
+can be revoked through the desktop's permission controls.
 
 Disconnecting stops the helper's owned jobs and ends that chat's connection.
 Deleting local state or ChatGPT conversation history is a separate action under
