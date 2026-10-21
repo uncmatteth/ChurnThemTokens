@@ -35,6 +35,10 @@ def gtk_window(backend):
     panel.set_border_width(16)
     window.add(panel)
     panel.pack_start(Gtk.Label(label="Screen and mouse control for your own computer", xalign=0), False, False, 0)
+    if os.environ.get("WAYLAND_DISPLAY"):
+        setup_hint = Gtk.Label(label="If a sharing dialog opens, select a monitor, enable Allow Remote Interaction, and keep Remember This Selection checked.", xalign=0)
+        setup_hint.set_line_wrap(True)
+        panel.pack_start(setup_hint, False, False, 0)
     status = Gtk.Label(label="Stopped", xalign=0)
     status.set_line_wrap(True)
     panel.pack_start(status, False, False, 0)
