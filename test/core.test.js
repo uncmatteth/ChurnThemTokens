@@ -47,6 +47,33 @@ test('traversal, absolute paths, credentials and Git internals are rejected', as
     await assert.rejects(call('file_read', { project: 'sample', path: name }));
   }
 });
+test('registry, network and Docker credentials are excluded from every structured file surface', async t => {
+  const f = fixture(t);
+  const names = ['.npmrc', '.pypirc', '.netrc', '_netrc', '.git-credentials', '.gitconfig', '.yarnrc.yml', '.docker/config.json'];
+  for (const name of names) {
+    const target = path.join(f.root, name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, 'fixture-secret-marker');
+    await assert.rejects(f.call('file_read', { project: 'sample', path: name }), /Sensitive/);
+    await assert.rejects(f.call('file_read', { project: 'sample', path: name, encoding: 'base64' }), /Sensitive/);
+    await assert.rejects(f.call('file_list', { project: 'sample', path: name }), /Sensitive/);
+  }
+  assert.deepEqual((await f.call('file_search', { project: 'sample', query: 'fixture-secret-marker' })).matches, []);
+  assert.equal((await f.call('file_list', { project: 'sample' })).entries.length, 0);
+});
+test('existing config and state reject insecure modes or redirected files without changing them', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t);
+  fs.chmodSync(f.configFile, 0o644);
+  await assert.rejects(f.call('bridge_status'), /private regular file/);
+  assert.throws(() => new DirectBridge(f.config, f.configFile), /private regular file/);
+  assert.equal(fs.statSync(f.configFile).mode & 0o777, 0o644);
+  fs.chmodSync(f.configFile, 0o600);
+  fs.chmodSync(f.bridge.state, 0o755);
+  assert.throws(() => new DirectBridge(f.config, f.configFile), /state directories must be private/);
+  fs.chmodSync(f.bridge.state, 0o700);
+  const alias = path.join(f.temp, 'config-alias.json'); fs.symlinkSync(f.configFile, alias);
+  assert.throws(() => new DirectBridge(f.config, alias), /must not be a symlink/);
+});
 test('symlinks and hard links cannot bypass file boundaries', async t => {
   const { temp, root, call } = fixture(t); const outside = path.join(temp, 'private'); fs.writeFileSync(outside, 'private');
   fs.symlinkSync(outside, path.join(root, 'link')); fs.linkSync(outside, path.join(root, 'hard'));

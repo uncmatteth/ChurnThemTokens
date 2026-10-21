@@ -58,14 +58,37 @@ test('RPC validation, negotiation and notifications cannot execute writes', asyn
   assert.equal(await dispatch(f.bridge, { jsonrpc: '2.0', method: 'tools/call', params: { name: 'file_write', arguments: { project: 'sample', path: 'bad', content: 'no', expected_sha256: '' } } }), null);
   assert.equal(fs.existsSync(path.join(f.root, 'bad')), false);
 });
-test('stdio emits only JSON-RPC and supports multiple bounded requests', async t => {
+test('stdio emits only JSON-RPC and supports multiple bounded requests', { timeout: 3000 }, async t => {
   const f = fixture(t), input = new PassThrough(), output = new PassThrough(); let text = '';
-  output.on('data', data => { text += data; });
+  let received; const receipts = new Promise(resolve => { received = resolve; });
+  output.on('data', data => { text += data; if (text.trim().split('\n').length === 3) received(); });
   let done; const ended = new Promise(r => { done = r; }); startStdio(f.bridge, input, output, async () => done());
-  input.end('not-json\n' + JSON.stringify(rpc('initialize')) + '\n' + JSON.stringify(rpc('tools/call', { name: 'bridge_status' }, 2)) + '\n');
+  input.write('not-json\n' + JSON.stringify(rpc('initialize')) + '\n' + JSON.stringify(rpc('tools/call', { name: 'bridge_status' }, 2)) + '\n');
+  await receipts; input.end();
   await ended; const replies = text.trim().split('\n').map(JSON.parse);
   assert.equal(replies.length, 3); assert.equal(replies[0].error.code, -32700);
   assert.equal(JSON.parse(replies.find(r => r.id === 2).result.content[0].text).invokes_codex, false);
+});
+test('stdio EOF revokes a connection immediately while an action is blocked', { timeout: 3000 }, async t => {
+  const f = fixture(t), input = new PassThrough(), output = new PassThrough();
+  let release, entered, done, closingStarted = false, text = '';
+  const gate = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const stopped = new Promise(resolve => { done = resolve; });
+  const original = f.bridge.call.bind(f.bridge);
+  f.bridge.call = async (name, ...args) => { if (name === 'blocked_action') { entered(); return gate; } return original(name, ...args); };
+  output.on('data', data => { text += data; });
+  startStdio(f.bridge, input, output, async () => { closingStarted = true; await f.bridge.close(); done(); });
+  input.write(JSON.stringify(rpc('tools/call', { name: 'blocked_action' })) + '\n');
+  await started;
+  input.end();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(closingStarted, true, 'EOF waited for the active action');
+  release({ cancelled: true });
+  await stopped;
+  await assert.rejects(original('file_write', { project: 'sample', path: 'after-stop', content: 'no', expected_sha256: '' }), /stopped/);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(text, '', 'an abandoned connection received a late result');
 });
 test('HTTP is loopback-only and unauthenticated tools never execute', async t => {
   const f = await httpFixture(t); assert.equal(f.server.address().address, '127.0.0.1');

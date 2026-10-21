@@ -12,17 +12,31 @@ const execFileAsync = promisify(execFile);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const uuid = () => crypto.randomUUID();
 const LIMIT = 2 * 1024 * 1024;
-const PROTECTED = /(^|\/)(\.git|\.ssh|\.gnupg|\.aws|\.azure|\.codex|\.gbrain|\.openclaw|\.kube|\.config|\.env(?:\..*)?|auth\.json|credentials(?:\.json)?|cookies(?:\..*)?|session(?:\..*)?|id_(?:rsa|ed25519|ecdsa|dsa)|[^/]*\.(?:pem|key|p12|pfx|sqlite3?|db))($|\/)/i;
+const PROTECTED = /(^|\/)(\.git|\.ssh|\.gnupg|\.aws|\.azure|\.codex|\.gbrain|\.openclaw|\.kube|\.config|\.docker|\.npmrc|\.pypirc|\.?netrc|_netrc|\.git-credentials|\.gitconfig|\.yarnrc(?:\.yml)?|\.env(?:\..*)?|auth\.json|credentials(?:\.json)?|cookies(?:\..*)?|session(?:\..*)?|id_(?:rsa|ed25519|ecdsa|dsa)|[^/]*\.(?:pem|key|p12|pfx|sqlite3?|db))($|\/)/i;
 const SKIP = new Set(['node_modules', '.git', '.next', '.venv', 'venv', '__pycache__', 'dist', 'build', '.cache']);
 const inside = (root, target) => {
   const relative = path.relative(root, target);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 };
 function fail(message) { throw new Error(message); }
-function privateDir(dir) { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); }
+function privateDir(dir, verify = false) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (verify) {
+    const stat = fs.lstatSync(dir);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) fail('Bridge state directories must be private and owned by the current user');
+  }
+}
 function jsonRead(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+  let fd;
+  try {
+    if (fs.lstatSync(file).isSymbolicLink()) fail('Private state/configuration must not be a symlink');
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) fail('Private state/configuration must be a private regular file owned by the current user');
+    return JSON.parse(fs.readFileSync(fd, 'utf8'));
+  }
   catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 function atomic(file, data, mode = 0o600) {
   const tmp = `${file}.${uuid()}.tmp`;
@@ -99,8 +113,9 @@ class DirectBridge {
     this.config = config;
     this.configFile = configFile;
     this.state = path.resolve(config.stateDir);
-    privateDir(this.state);
-    for (const dir of ['jobs', 'backups', 'checkpoints', 'worktrees', 'empty-hooks']) privateDir(path.join(this.state, dir));
+    if (configFile) jsonRead(configFile, null);
+    privateDir(this.state, true);
+    for (const dir of ['jobs', 'backups', 'checkpoints', 'worktrees', 'empty-hooks']) privateDir(path.join(this.state, dir), true);
     this.id = config.instanceId;
     this.projects = new Map();
     for (const entry of config.projects || []) this.addProject(entry.id, entry.path);

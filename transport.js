@@ -39,13 +39,21 @@ async function dispatch(bridge, message, scopes = null) {
   return { jsonrpc: '2.0', id, result };
 }
 function startStdio(bridge, input = process.stdin, output = process.stdout, onEnd = () => bridge.close()) {
-  let buffered = ''; let active = 0; let ended = false; let closing = false;
-  const send = response => { if (response) output.write(`${JSON.stringify(response)}\n`); };
-  const done = () => { if (ended && !active && !closing) { closing = true; onEnd().catch(() => {}); } };
+  let buffered = ''; let active = 0; let closing = false; let stopped;
+  const send = response => { if (response && !closing) output.write(`${JSON.stringify(response)}\n`); };
+  const done = () => {
+    if (!closing) {
+      closing = true; buffered = '';
+      try { stopped = Promise.resolve(onEnd()); } catch (error) { stopped = Promise.reject(error); }
+      stopped.catch(() => {});
+    }
+    return stopped;
+  };
   input.setEncoding('utf8');
   input.on('data', data => {
+    if (closing) return;
     buffered += data;
-    if (Buffer.byteLength(buffered) > 4 * LIMIT) { send(rpcError(null, -32600, 'Request exceeds size limit')); input.destroy(); ended = true; done(); return; }
+    if (Buffer.byteLength(buffered) > 4 * LIMIT) { send(rpcError(null, -32600, 'Request exceeds size limit')); input.destroy(); done(); return; }
     for (;;) {
       const end = buffered.indexOf('\n'); if (end < 0) break;
       const line = buffered.slice(0, end); buffered = buffered.slice(end + 1);
@@ -53,12 +61,14 @@ function startStdio(bridge, input = process.stdin, output = process.stdout, onEn
       let message; try { message = JSON.parse(line); } catch { send(rpcError(null, -32700, 'Invalid JSON')); continue; }
       if (active >= 16) { send(rpcError(message.id, -32000, 'Too many concurrent requests')); continue; }
       active++;
-      dispatch(bridge, message).then(send, () => send(rpcError(message.id, -32603, 'Internal error'))).finally(() => { active--; done(); });
+      dispatch(bridge, message).then(send, () => send(rpcError(message.id, -32603, 'Internal error'))).finally(() => { active--; });
     }
   });
-  input.on('end', () => { ended = true; done(); });
-  input.on('error', () => { ended = true; done(); });
-  return { close: () => { input.destroy(); return bridge.close(); } };
+  input.on('end', done);
+  input.on('error', done);
+  input.on('close', done);
+  output.on('error', done);
+  return { close: () => { input.destroy(); return done(); } };
 }
 function publicOrigin(value) {
   if (!value) return null;
