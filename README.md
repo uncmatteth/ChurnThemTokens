@@ -177,3 +177,7 @@ See [SECURITY.md](SECURITY.md) and [TESTING.md](TESTING.md).
 
 Built from the MIT-licensed Direct Chat executor in
 [BridgeBrain](https://github.com/uncmatteth/gbrain-bridgebrain/tree/feat/direct-chat-computer-bridge/direct-chat).
+
+### Photo icons
+
+Lulu’s existing photo is the main ChurnThemTokens extension icon. Bob’s existing photo artwork is the AIClickThatShit icon, shown in its desktop window and the extension’s mouse-control section. These reuse the existing pet images.

@@ -12,6 +12,9 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
+
+ICON = Path(__file__).resolve().parent / "browser-relay" / "bob128.png"
 
 from ui_backend import Backend, doctor, serve
 
@@ -24,6 +27,8 @@ def gtk_window(backend):
 
     window = Gtk.Window(title="AIClickThatShit")
     window.set_default_size(650, 520)
+    if ICON.is_file():
+        window.set_icon_from_file(str(ICON))
     panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     panel.set_border_width(16)
     window.add(panel)
@@ -89,6 +94,8 @@ def tk_window(backend):
     window = tk.Tk()
     window.title("AIClickThatShit")
     window.geometry("650x520")
+    if ICON.is_file():
+        window.iconphoto(True, tk.PhotoImage(file=str(ICON)))
     panel = ttk.Frame(window, padding=16)
     panel.pack(fill="both", expand=True)
     ttk.Label(panel, text="Screen and mouse control for your own computer").pack(anchor="w")

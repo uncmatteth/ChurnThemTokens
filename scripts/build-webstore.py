@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "browser-relay"
 FILES = (
     "manifest.json", "worker.js", "content.js", "protocol.js",
-    "popup.html", "popup.js", "popup.css", "icon128.png",
+    "popup.html", "popup.js", "popup.css", "icon128.png", "bob128.png",
 )
 
 
