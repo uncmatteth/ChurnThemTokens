@@ -7,7 +7,7 @@ const os = require('node:os');
 const { install, optionsFor } = require('../install');
 const native = require('../browser-relay/setup');
 function fixture(t) {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'churn-install-'));
+  const temp = fs.mkdtempSync(path.join(process.platform === 'win32' ? os.homedir() : os.tmpdir(), 'churn-install-'));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const root = path.join(temp, 'project'), home = path.join(temp, 'home'), config = path.join(temp, 'private', 'config.json');
   fs.mkdirSync(root);

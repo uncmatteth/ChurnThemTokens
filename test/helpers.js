@@ -9,7 +9,7 @@ const { execFileSync } = require('node:child_process');
 const { DirectBridge, hash, jsonWrite, LIMIT } = require('../core');
 const delay = ms => new Promise(r => setTimeout(r, ms));
 function fixture(t, permissions = {}) {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-direct-test-'));
+  const temp = fs.mkdtempSync(path.join(process.platform === 'win32' ? os.homedir() : os.tmpdir(), 'bb-direct-test-'));
   const root = path.join(temp, 'project'); fs.mkdirSync(root);
   const config = { instanceId: crypto.randomUUID(), stateDir: path.join(temp, 'state'), projects: [{ id: 'sample', path: root }], permissions: { write: true, exec: true, browser: true, desktop: true, ...permissions }, localBearerToken: crypto.randomBytes(32).toString('base64url') };
   const configFile = path.join(temp, 'config.json'); jsonWrite(configFile, config);

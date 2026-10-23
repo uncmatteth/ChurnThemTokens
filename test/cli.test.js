@@ -10,7 +10,7 @@ const { jsonRead } = require('../core');
 const { argumentsFor } = require('../cli');
 const cli = path.resolve(__dirname, '..', 'cli.js');
 function fixture(t) {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-cli-')), root = path.join(temp, 'project'), config = path.join(temp, 'private', 'config.json'); fs.mkdirSync(root);
+  const temp = fs.mkdtempSync(path.join(process.platform === 'win32' ? os.homedir() : os.tmpdir(), 'bb-cli-')), root = path.join(temp, 'project'), config = path.join(temp, 'private', 'config.json'); fs.mkdirSync(root);
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const run = (...args) => spawnSync(process.execPath, [cli, ...args, '--config', config], { encoding: 'utf8', timeout: 12000 });
   return { temp, root, config, run };
