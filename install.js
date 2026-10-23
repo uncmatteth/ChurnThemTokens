@@ -121,6 +121,7 @@ async function install(options, environment = {}) {
   return {
     product: 'ChurnThemTokens', dry_run: !!options.dryRun, config,
     status: options.dryRun ? 'planned_no_changes' : 'local_helper_ready_browser_connection_unverified',
+    desktop_scope: options.permissions.desktop ? 'Screen, mouse and keyboard control. On GNOME Wayland when the public portal has no screen sources, this includes all monitors without an additional OS sharing dialog.' : 'off',
     native_handshake: proof, extension_id: plan.extension_id, extension_directory: plan.extension_directory,
     browser_steps: [
       { action: 'install_from_chrome_web_store', url: `https://chromewebstore.google.com/detail/${plan.extension_id}`, extension_id: plan.extension_id, instruction: 'Open the store listing in the intended existing Chrome profile and choose Add to Chrome.' },

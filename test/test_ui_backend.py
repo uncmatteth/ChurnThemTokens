@@ -69,6 +69,19 @@ class DesktopValidation(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "stopped"):
                 self.backend.desktop({"operation": "click", "x": 10, "y": 20})
         self.backend.portal.move.assert_not_called()
+
+    def test_gnome_uses_desktop_fallback_when_portal_has_no_sources(self):
+        import gnome_wayland
+        import wayland_portal
+        portal = Mock()
+        portal.call.return_value = (0,)
+        fallback = Mock()
+        fallback.start.return_value = {"active": True, "backend": "gnome"}
+        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0", "XDG_CURRENT_DESKTOP": "ubuntu:GNOME"}):
+            with patch.object(wayland_portal, "WaylandPortal", return_value=portal):
+                with patch.object(gnome_wayland, "GnomeWaylandDesktop", return_value=fallback):
+                    self.assertEqual(self.backend.desktop({"operation": "start"})["backend"], "gnome")
+        self.assertIs(self.backend.portal, fallback)
     def test_wayland_start_click_and_stop_use_owned_portal(self):
         self.backend.portal = Mock()
         self.backend.portal.start.return_value = {"active": True, "wayland": True}
@@ -101,6 +114,44 @@ class DesktopValidation(unittest.TestCase):
         self.assertFalse(self.backend.desktop({"operation": "status"})["active"])
         self.gui.screenshot.side_effect = None
         self.assertTrue(self.backend.desktop({"operation": "start"})["active"])
+
+
+class GnomeDesktopStop(unittest.TestCase):
+    def backend(self):
+        from gnome_wayland import GnomeWaylandDesktop
+        backend = GnomeWaylandDesktop.__new__(GnomeWaylandDesktop)
+        backend.pipeline = None
+        backend.sink = object()
+        backend.remote_session = "/remote"
+        backend.screen_session = "/screen"
+        backend.stream = "/stream"
+        backend.closed = backend.remote_closed = backend.screen_closed = False
+        backend.subscriptions = [7]
+        backend.bus = Mock()
+        backend.GLib = Mock()
+        backend.GLib.MainContext.default.return_value.pending.return_value = False
+        backend.call = Mock(return_value=())
+        return backend
+
+    def test_stop_confirms_both_sessions_are_gone(self):
+        backend = self.backend()
+        backend.session_active = Mock(side_effect=[True, False, False])
+        backend.stop()
+        backend.call.assert_called_once()
+        self.assertIsNone(backend.remote_session)
+        self.assertIsNone(backend.screen_session)
+        backend.bus.signal_unsubscribe.assert_called_once_with(7)
+
+    def test_failed_stop_keeps_session_handles_and_reports_failure(self):
+        backend = self.backend()
+        backend.session_active = Mock(return_value=True)
+        backend.call.side_effect = RuntimeError("session stayed open")
+        with patch("gnome_wayland.time.monotonic", side_effect=[0, 3]):
+            with self.assertRaisesRegex(ValueError, "did not confirm"):
+                backend.stop()
+        self.assertEqual(backend.remote_session, "/remote")
+        self.assertEqual(backend.screen_session, "/screen")
+        backend.bus.signal_unsubscribe.assert_not_called()
 
 
 @unittest.skipUnless(os.environ.get("BRIDGEBRAIN_UI_TESTS") == "1", "Optional real Chromium test")

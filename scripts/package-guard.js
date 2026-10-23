@@ -2,8 +2,9 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
-const top = new Set(['.gitignore', 'AGENTS.md', 'README.md', 'TESTING.md', 'SECURITY.md', 'PRIVACY.md', 'LICENSE', 'package.json', 'core.js', 'transport.js', 'cli.js', 'native.js', 'install.js', 'ui_backend.py', 'desktop_companion.py', 'wayland_portal.py', 'requirements-ui.txt']);
+const top = new Set(['.gitignore', 'AGENTS.md', 'README.md', 'TESTING.md', 'SECURITY.md', 'PRIVACY.md', 'LICENSE', 'package.json', 'core.js', 'transport.js', 'cli.js', 'native.js', 'install.js', 'ui_backend.py', 'desktop_companion.py', 'wayland_portal.py', 'gnome_wayland.py', 'requirements-ui.txt']);
 const allowed = name => top.has(name) || /^browser-relay\/(?:manifest\.json|(?:icon128|bob128)\.png|(?:worker|content|protocol|popup|setup)\.js|popup\.(?:html|css))$/.test(name) || /^test\/[a-z0-9_.-]+\.(?:js|py)$/.test(name) || ['scripts/package-guard.js', 'scripts/build-webstore.py', 'scripts/build-icon.py', 'scripts/check-private-windows-acl.ps1', 'skills/churn-them-tokens/SKILL.md', 'skills/churn-them-tokens/agents/openai.yaml'].includes(name);
 const blockers = [];
 function walk(directory, prefix = '') {
@@ -27,6 +28,8 @@ function walk(directory, prefix = '') {
   }
 }
 walk(root);
+const git = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' });
+if (git.error || git.status !== 0 || git.stdout.trim()) blockers.push('build only from a clean Git commit; staged, modified and untracked files are not publishable');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'browser-relay/manifest.json')));
 if (JSON.stringify([...manifest.permissions].sort()) !== JSON.stringify(['activeTab', 'nativeMessaging', 'scripting'])) blockers.push('manifest permissions differ from reviewed access');
 if (manifest.host_permissions || manifest.content_scripts) blockers.push('persistent site access needs a separate review');

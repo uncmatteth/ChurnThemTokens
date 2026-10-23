@@ -93,9 +93,14 @@ access enabled, the extension shows these controls:
 On Wayland portals supporting permission restoration, AIClickThatShit requests
 permission until explicitly revoked and saves the desktop's returned grant
 privately. Reopening restores that grant; an already active session is reused.
+If a GNOME Wayland session's public portal reports no screen sources,
+AIClickThatShit uses GNOME's screen and input session instead. In that case,
+`--allow-desktop` authorizes capture of all monitors and mouse/keyboard input
+without an additional OS sharing dialog. The standalone app waits for its
+Turn on button before starting desktop access.
 The standalone Linux app keeps its initial sharing request open until you
 complete it or stop control; it does not discard setup after a short timeout.
-In the sharing dialog, select a monitor as well as allowing remote interaction.
+If a sharing dialog appears, select a monitor as well as allowing remote interaction.
 The Share button can be enabled by input access alone; the app needs a monitor
 selection too, so it can see where it is clicking.
 The desktop can still ask again if it did not grant persistence, the permission
@@ -193,4 +198,4 @@ Built from the MIT-licensed Direct Chat executor in
 
 Lulu’s existing photo is the main ChurnThemTokens extension icon. Bob’s existing photo artwork is the AIClickThatShit icon, shown in its desktop window and the extension’s mouse-control section. These reuse the existing pet images.
 
-Opening the standalone AIClickThatShit app automatically starts screen and mouse control. No initial Turn on click is required. Turn off stops control for that open session; Turn on lets you resume it. OS permission requirements still apply.
+Opening the standalone AIClickThatShit app shows the control scope before sharing starts. Turn on starts screen and mouse control; Turn off stops it for that open session. OS permission requirements still apply.

@@ -28,6 +28,7 @@ class PortalRestore(unittest.TestCase):
         self.p.approval_timeout = None
         self.p.stop = Mock(side_effect=self.clear_session)
         self.p.portal_version = Mock(return_value=2)
+        self.p.cursor_mode = Mock(return_value=2)
         self.p.open_capture = Mock(side_effect=lambda: setattr(self.p, "sink", object()))
         self.p.screenshot = Mock()
         self.p.status = Mock(return_value={"active": True})
@@ -82,6 +83,21 @@ class PortalRestore(unittest.TestCase):
         self.p.start()
         self.assertNotIn("persist_mode", self.selected())
         self.assertNotIn("restore_token", self.selected())
+
+    def test_hidden_cursor_mode_is_used_when_embedded_is_unavailable(self):
+        self.p.cursor_mode.return_value = 1
+        self.p.start()
+        options = [values[1] for method, values in self.requests if method == "SelectSources"][-1]
+        self.assertEqual(options["cursor_mode"], 1)
+
+    def test_portal_cursor_modes_are_selected_from_advertised_capabilities(self):
+        self.p.call = Mock(return_value=(1,))
+        self.assertEqual(portal.WaylandPortal.cursor_mode(self.p), 1)
+        self.p.call.return_value = (2,)
+        self.assertEqual(portal.WaylandPortal.cursor_mode(self.p), 2)
+        self.p.call.return_value = (0,)
+        with self.assertRaisesRegex(ValueError, "no available cursor mode"):
+            portal.WaylandPortal.cursor_mode(self.p)
 
     def test_second_pending_request_does_not_open_another_dialog(self):
         import fcntl

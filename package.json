@@ -30,6 +30,7 @@
     "ui_backend.py",
     "desktop_companion.py",
     "wayland_portal.py",
+    "gnome_wayland.py",
     "requirements-ui.txt",
     "README.md",
     "SECURITY.md",

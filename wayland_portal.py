@@ -111,6 +111,15 @@ class WaylandPortal:
     def portal_version(self):
         return int(unpack(self.call("org.freedesktop.DBus.Properties", "Get", "(ss)", (REMOTE, "version")))[0])
 
+    def cursor_mode(self):
+        modes = int(unpack(self.call("org.freedesktop.DBus.Properties", "Get",
+                                     "(ss)", (CAST, "AvailableCursorModes")))[0])
+        if modes & 2:
+            return 2
+        if modes & 1:
+            return 1
+        raise ValueError("The desktop portal has no available cursor mode")
+
     def call(self, interface, method, signature, values, timeout=5000):
         return self.bus.call_sync(
             PORTAL, PATH, interface, method, self.GLib.Variant(signature, values),
@@ -203,7 +212,7 @@ class WaylandPortal:
             self.request_call(REMOTE, "SelectDevices", "(oa{sv})", (self.session, devices_options))
             self.request_call(CAST, "SelectSources", "(oa{sv})", (self.session, {
                 "handle_token": V("s", token()), "types": V("u", 1),
-                "multiple": V("b", False), "cursor_mode": V("u", 2),
+                "multiple": V("b", False), "cursor_mode": V("u", self.cursor_mode()),
             }))
             granted = self.request_call(REMOTE, "Start", "(osa{sv})", (self.session, self.parent_window, {
                 "handle_token": V("s", token()),

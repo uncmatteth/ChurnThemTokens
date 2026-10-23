@@ -34,7 +34,9 @@ def gtk_window(backend):
     panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     panel.set_border_width(16)
     window.add(panel)
-    panel.pack_start(Gtk.Label(label="Screen and mouse control for your own computer", xalign=0), False, False, 0)
+    scope = Gtk.Label(label="Screen, mouse and keyboard control for your own computer. On GNOME without a sharing dialog, turning this on shares all monitors.", xalign=0)
+    scope.set_line_wrap(True)
+    panel.pack_start(scope, False, False, 0)
     if os.environ.get("WAYLAND_DISPLAY"):
         setup_hint = Gtk.Label(label="If a sharing dialog opens, select a monitor, enable Allow Remote Interaction, and keep Remember This Selection checked.", xalign=0)
         setup_hint.set_line_wrap(True)
@@ -92,7 +94,6 @@ def gtk_window(backend):
     native_window = window.get_window()
     if hasattr(native_window, "get_xid"):
         backend.parent_window = f"x11:{native_window.get_xid():x}"
-    GLib.idle_add(lambda: (run("start"), False)[1])
     Gtk.main()
 
 
@@ -108,7 +109,7 @@ def tk_window(backend):
         window.iconphoto(True, tk.PhotoImage(file=str(ICON)))
     panel = ttk.Frame(window, padding=16)
     panel.pack(fill="both", expand=True)
-    ttk.Label(panel, text="Screen and mouse control for your own computer").pack(anchor="w")
+    ttk.Label(panel, text="Screen, mouse and keyboard control for your own computer", wraplength=600).pack(anchor="w")
     status = tk.StringVar(value="Stopped")
     ttk.Label(panel, textvariable=status, wraplength=600).pack(anchor="w", pady=10)
     row = ttk.Frame(panel); row.pack(fill="x")
@@ -141,7 +142,6 @@ def tk_window(backend):
         backend.close()
         window.destroy()
     window.protocol("WM_DELETE_WINDOW", close)
-    window.after_idle(lambda: run("start"))
     window.mainloop()
 
 
