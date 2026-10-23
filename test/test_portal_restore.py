@@ -11,6 +11,7 @@ portal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(portal)
 
 
+@unittest.skipIf(os.name == "nt", "Wayland portal requires POSIX APIs")
 class PortalRestore(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
