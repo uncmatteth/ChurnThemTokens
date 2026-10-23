@@ -1,5 +1,5 @@
 'use strict';
-const elements = Object.fromEntries(['status', 'connect', 'error', 'task-panel', 'permissions', 'roots', 'desktop-panel', 'desktop-status', 'desktop-share', 'desktop-stop', 'desktop-error', 'task', 'start', 'check', 'check-help', 'completion', 'stop'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['status', 'error', 'task-panel', 'access-panel', 'permissions', 'roots', 'desktop-panel', 'desktop-status', 'desktop-share', 'desktop-stop', 'desktop-error', 'task', 'start', 'check', 'check-help', 'completion', 'stop'].map(id => [id, document.getElementById(id)]));
 const QUICK_CHECK = 'Verify this bridge: identify the machine and approved roots, create a uniquely named harmless test file in an approved root, read it back, delete it with its hash, then run a harmless command and read its real exit status. Report only observed results.';
 let current = { connected: false }, busy = false, actionError = '', nextRequest = 0;
 function friendlyError(message) {
@@ -10,11 +10,8 @@ function friendlyError(message) {
 }
 function render() {
   const connected = current.connected === true, running = current.running === true;
-  elements.connect.hidden = connected;
-  elements.connect.disabled = busy;
-  elements.connect.textContent = busy ? 'Connecting…' : 'Agree & connect this Pro chat';
-  elements['task-panel'].hidden = !connected;
-  elements.status.textContent = !connected ? 'Open your Pro chat in ChatGPT, then connect.' : running ? `Working on ${current.hostname} · ${current.steps || 0} tool results` : current.error ? `Paused on ${current.hostname}` : current.completion ? `Finished on ${current.hostname}` : `Connected to ${current.hostname}`;
+  elements['access-panel'].hidden = !connected;
+  elements.status.textContent = busy && !connected ? 'Connecting this Pro chat…' : !connected ? 'Open your Pro chat in ChatGPT, then run a task.' : running ? `Working on ${current.hostname} · ${current.steps || 0} tool results` : current.error ? `Paused on ${current.hostname}` : current.completion ? `Finished on ${current.hostname}` : `Connected to ${current.hostname}`;
   const error = actionError || current.error || '';
   elements.error.hidden = !error; elements.error.textContent = friendlyError(error);
   const permissions = current.permissions || {};
@@ -33,10 +30,13 @@ function render() {
   elements['desktop-error'].hidden = !current.desktopError;
   elements['desktop-error'].textContent = current.desktopError || '';
   elements.task.disabled = busy || running;
-  elements.start.disabled = busy || !connected || running || !elements.task.value.trim();
-  elements.check.disabled = busy || !connected || running;
+  elements.start.disabled = busy || running || !elements.task.value.trim();
+  elements.start.textContent = connected ? 'Run task' : 'Connect & run task';
+  elements.check.disabled = busy || running;
+  elements.check.textContent = connected ? 'Run quick check' : 'Connect & run quick check';
   elements.check.hidden = running; elements['check-help'].hidden = running;
   elements.completion.hidden = !current.completion; elements.completion.textContent = current.completion || '';
+  elements.stop.hidden = !connected;
 }
 async function request(kind, extra = {}) {
   const version = ++nextRequest;
@@ -48,7 +48,6 @@ async function request(kind, extra = {}) {
   } catch (error) { if (version === nextRequest) actionError = error.message; }
   finally { if (kind !== 'status') busy = false; if (version === nextRequest) render(); }
 }
-elements.connect.addEventListener('click', () => request('connect'));
 // Each labelled button authorizes the displayed access for this task.
 elements.start.addEventListener('click', () => request('start', { task: elements.task.value, consent: true }));
 elements.check.addEventListener('click', () => request('start', { task: QUICK_CHECK, consent: true }));

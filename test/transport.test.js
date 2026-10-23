@@ -158,6 +158,26 @@ test('a stale OAuth save after revocation cannot resurrect an old grant', async 
   assert.equal((await f.mcp(rpc('ping'), token.access_token)).status, 401);
   assert.equal(loadOAuth(f.bridge).clients[p.client], undefined);
 });
+test('revocation cancels an authenticated file write queued before it starts', async t => {
+  const f = await httpFixture(t), pairing = await f.pairing();
+  const token = await (await f.form(pairing.exchange)).json();
+  const file = path.join(f.root, 'after-revoke.txt'), key = 'file:sample:after-revoke.txt';
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  f.bridge.locks.set(key, gate);
+  const request = f.mcp(rpc('tools/call', { name: 'file_write', arguments: { project: 'sample', path: 'after-revoke.txt', content: 'no', expected_sha256: '' } }), token.access_token);
+  for (let index = 0; index < 100 && f.bridge.locks.get(key) === gate; index++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.notEqual(f.bridge.locks.get(key), gate, 'the write did not enter the queue');
+  f.config.oauthEpoch = crypto.randomUUID();
+  f.config.localBearerToken = crypto.randomBytes(32).toString('base64url');
+  jsonWrite(f.configFile, f.config);
+  release();
+  const result = await (await request).json();
+  assert.equal(result.result.isError, true);
+  assert.match(result.result.content[0].text, /revoked/);
+  assert.equal(fs.existsSync(file), false);
+});
 test('registration and public URL checks reject credential/redirect leaks', async t => {
   const f = await httpFixture(t);
   for (const value of ['https://attacker.invalid/callback', redirect + '?leak=1', 'http://chatgpt.com/connector_platform/oauth_redirect', 'https://chatgpt.com' + '@' + 'attacker.invalid/connector_platform/oauth_redirect']) assert.equal(validRedirect(value), false);
@@ -207,4 +227,17 @@ test('pending authorization is preserved until expiry', async t => {
   assert.equal((await f.request('/authorize?' + query)).status, 200);
   assert.equal(Object.keys(loadOAuth(f.bridge).pending).length, 32);
   assert.equal(loadOAuth(f.bridge).pending[oldest], undefined);
+});
+test('a newly pending pairing protects an older registration from eviction', async t => {
+  const f = await httpFixture(t);
+  const register = () => f.request('/register', { method: 'POST', body: JSON.stringify({ redirect_uris: [redirect] }) });
+  const client = (await (await register()).json()).client_id;
+  const store = loadOAuth(f.bridge);
+  store.clients[client].created = Math.floor(Date.now() / 1000) - 301;
+  jsonWrite(path.join(f.bridge.state, 'oauth-state.json'), store);
+  const query = new URLSearchParams({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: 'a'.repeat(43), resource: origin + '/mcp', scope: 'bridge.read' });
+  assert.equal((await f.request('/authorize?' + query)).status, 200);
+  for (let index = 1; index < 32; index++) assert.equal((await register()).status, 201);
+  assert.equal((await register()).status, 429);
+  assert.ok(loadOAuth(f.bridge).clients[client]);
 });

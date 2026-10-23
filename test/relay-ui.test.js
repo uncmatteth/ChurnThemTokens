@@ -95,7 +95,7 @@ test('real Chrome fixture attaches a desktop frame to the same chat result', { s
   assert.match(result.stdout, /id="result">PASS<\/pre>/, result.stdout);
 });
 
-test('real Chrome popup fixture: simple setup, explicit action consent and useful progress', { skip: !process.env.BRIDGEBRAIN_RELAY_CHROME }, t => {
+test('real Chrome popup fixture: one-click connection and task with useful progress', { skip: !process.env.BRIDGEBRAIN_RELAY_CHROME }, t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'churn-popup-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const fixture = path.join(directory, 'popup.html');
@@ -103,15 +103,14 @@ test('real Chrome popup fixture: simple setup, explicit action consent and usefu
   let html = fs.readFileSync(path.join(source, 'popup.html'), 'utf8');
   html = html.replace('href="popup.css"', `href="${pathToFileURL(path.join(source, 'popup.css')).href}"`);
   const mock = `<script>
-    let value={connected:false}, failConnect=true; const calls=[];
+    let value={connected:false}, failStart=true; const calls=[];
     const connected=()=>({connected:true,running:false,hostname:'test-computer',permissions:{write:true,exec:true},projects:[{id:'project',root:'/fixture'}]});
     window.chrome.runtime={sendMessage:async message=>{
       calls.push(message);
-      if(message.kind==='connect'){
-        if(failConnect){failConnect=false;return {ok:false,error:'Specified native messaging host not found.'};}
-        value=connected();
+      if(message.kind==='start'){
+        if(failStart){failStart=false;return {ok:false,error:'Specified native messaging host not found.'};}
+        value={...connected(),running:true};
       }
-      if(message.kind==='start')value={...value,running:true};
       if(message.kind==='stop')value={connected:false};
       return {ok:true,value};
     }};
@@ -121,14 +120,13 @@ test('real Chrome popup fixture: simple setup, explicit action consent and usefu
     const el=id=>document.getElementById(id);
     (async()=>{
       await wait();
-      check(el('task-panel').hidden,'Task controls appeared before connection');
-      el('connect').click(); await wait();
-      check(el('error').textContent.includes('local helper setup'),'Missing helper error was not understandable');
-      el('connect').click(); await wait();
-      check(!el('task-panel').hidden && el('status').textContent==='Connected to test-computer','Connection state was not shown');
-      check(el('permissions').textContent.includes('Run commands') && el('roots').textContent.includes('/fixture'),'Access was not disclosed');
+      check(!el('task-panel').hidden && el('access-panel').hidden,'One-click task controls were unavailable before connection');
       check(el('start').disabled,'Empty task could run');
       el('check').click(); await wait();
+      check(el('error').textContent.includes('local helper setup'),'Missing helper error was not understandable');
+      el('check').click(); await wait();
+      check(!el('access-panel').hidden && el('status').textContent.includes('Working on test-computer'),'One click did not connect and start');
+      check(el('permissions').textContent.includes('Run commands') && el('roots').textContent.includes('/fixture'),'Access was not disclosed');
       check(calls.find(message=>message.kind==='start').consent===true,'Quick-check button did not authorize its task');
       check(el('task').disabled && el('check').hidden && el('status').textContent.includes('Working on'),'Running state permits duplicate work or hides progress');
       value={...value,running:false,completion:'Observed file hash and command exit 0.'};
@@ -139,8 +137,7 @@ test('real Chrome popup fixture: simple setup, explicit action consent and usefu
       el('start').click();await wait();
       check(calls.filter(message=>message.kind==='start').at(-1).task==='Read the project instructions','Typed task was replaced');
       el('stop').click();await wait();
-      check(el('task-panel').hidden,'Disconnect left task controls active');
-      el('connect').click();await wait();
+      check(el('access-panel').hidden && !el('task-panel').hidden,'Disconnect did not restore one-click setup');
       document.getElementById('result').textContent='PASS';
     })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.message);
   </script>`;

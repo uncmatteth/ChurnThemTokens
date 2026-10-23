@@ -17,14 +17,16 @@ steps; neither proves the other worked.
    approve the whole home directory or drive. Commands run as the OS user; root
    restrictions on file tools do not sandbox shell execution.
 3. Run `node install.js --root project=/absolute/approved/project --allow-write
-   --allow-exec --dry-run`, inspect its result, then repeat without `--dry-run`.
+   --allow-exec --allow-desktop --dry-run`, inspect its result, then repeat without `--dry-run`.
    The installer handles private configuration, native-host registration and a
-   real native transport handshake. It never installs or invokes a model client.
+   real native transport handshake. Install the desktop dependencies for the
+   selected OS and verify an actual frame and input result before calling mouse
+   control ready. It never installs or invokes a model client.
 4. Follow the returned `browser_steps` with the current supported browser tool:
    install the extension from its Chrome Web Store listing in the intended
    existing Chrome profile, use the existing signed-in ChatGPT
-   tab, select the actual Pro model, open ChurnThemTokens, connect the chat, then
-   run its quick check. Do these actions yourself when tools allow it. Never
+   tab, select the actual Pro model, open ChurnThemTokens, and use its one-click
+   **Connect & run quick check** action. Do these actions yourself when tools allow it. Never
    edit Chrome profile/preferences databases or extract cookies/tokens. Respect
    browser/OS confirmations requiring the human; request only that exact action.
 5. Observe Pro request a local file create/read/delete with its real hash and a

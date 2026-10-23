@@ -6,7 +6,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const manifest = require('./manifest.json');
-const { jsonRead, privateDir } = require('../core');
+const { jsonRead, privateDir, privateWindowsAcl } = require('../core');
 const HOST = 'com.chatgpt.local_bridge';
 const PRE_STORE_EXTENSION_ID = 'kbnifegchipefmhibbgpndogjaokagdj';
 function extensionId() {
@@ -14,6 +14,25 @@ function extensionId() {
   return crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(97 + parseInt(value, 16)));
 }
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+function verifiedDirectory(dir) {
+  const stat = fs.lstatSync(dir);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Native-host directory must be a real directory.');
+  if (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o022))) throw new Error('Native-host directory is writable by another user.');
+  privateWindowsAcl(dir);
+}
+function verifiedHostFile(file) {
+  verifiedDirectory(path.dirname(file));
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('Native-host file must be a regular single-link file.');
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+  try {
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile() || opened.nlink !== 1 || opened.size > 65536) throw new Error('Native-host file is unsafe or oversized.');
+    if (process.platform !== 'win32' && (opened.uid !== process.getuid() || (opened.mode & 0o077))) throw new Error('Native-host file is not private to this user.');
+    privateWindowsAcl(file);
+    return fs.readFileSync(fd, 'utf8');
+  } finally { fs.closeSync(fd); }
+}
 function plan({ config, home = os.homedir(), platform = process.platform, node = process.execPath, profileDirectory, settings: providedSettings } = {}) {
   if (!['linux', 'darwin', 'win32'].includes(platform)) throw new Error('Native-host installation supports Linux, macOS and Windows Chrome.');
   const p = platform === 'win32' ? path.win32 : path;
@@ -25,6 +44,11 @@ function plan({ config, home = os.homedir(), platform = process.platform, node =
   const chromeDirectory = platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'Google', 'Chrome') : path.join(home, '.config', 'google-chrome');
   const hostManifest = platform === 'win32' ? p.join(settings.stateDir, HOST + '.json') : path.join(profileDirectory || chromeDirectory, 'NativeMessagingHosts', HOST + '.json');
   const cli = path.resolve(__dirname, '..', 'cli.js');
+  // Windows runs .cmd files through cmd.exe. Refuse path characters that could
+  // change the command line or expand variables before writing any host files.
+  if (platform === 'win32' && [config, wrapper, hostManifest, node, cli].some(value => /["\r\n&|^()%!<>]/.test(value))) {
+    throw new Error('Windows native-host paths cannot contain command-shell metacharacters. No registration was changed.');
+  }
   const script = platform === 'win32' ? `@echo off\r\nsetlocal DisableDelayedExpansion\r\n"${node.replaceAll('%', '%%')}" "${cli.replaceAll('%', '%%')}" serve --native --config "${config.replaceAll('%', '%%')}" "%~1"\r\n` : `#!/bin/sh\nexec ${quote(node)} ${quote(cli)} serve --native --config ${quote(config)} "$@"\n`;
   const registration = JSON.stringify({ name: HOST, description: 'ChurnThemTokens local computer tools', path: wrapper, type: 'stdio', allowed_origins: [`chrome-extension://${id}/`] }, null, 2) + '\n';
   return { extension_id: id, extension_directory: __dirname, wrapper, host_manifest: hostManifest, platform, registry_key: platform === 'win32' ? `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST}` : null, files: [{ path: wrapper, content: script, mode: 0o700 }, { path: hostManifest, content: registration, mode: 0o600 }] };
@@ -47,8 +71,7 @@ function install(value, dryRun = true) {
     `chrome-extension://${value.extension_id}/`, `chrome-extension://${PRE_STORE_EXTENSION_ID}/`);
   for (const file of value.files) {
     try {
-      const stat = fs.lstatSync(file.path);
-      const existing = stat.isFile() && !stat.isSymbolicLink() ? fs.readFileSync(file.path, 'utf8') : null;
+      const existing = verifiedHostFile(file.path);
       if (existing !== file.content && !(file.path === value.host_manifest && existing === priorRegistration)) throw new Error('An existing native-host file differs; it was not overwritten.');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
@@ -58,24 +81,28 @@ function install(value, dryRun = true) {
   }
   if (!dryRun) for (const file of value.files) {
     privateDir(path.dirname(file.path));
+    verifiedDirectory(path.dirname(file.path));
     if (fs.existsSync(file.path)) {
-      const existing = fs.readFileSync(file.path, 'utf8');
+      const existing = verifiedHostFile(file.path);
       if (existing === file.content) continue;
       if (file.path !== value.host_manifest || existing !== priorRegistration) throw new Error('An existing native-host file differs; it was not overwritten.');
       const backup = file.path + '.pre-store-backup';
       if (fs.existsSync(backup)) {
-        if (!fs.lstatSync(backup).isFile() || fs.lstatSync(backup).isSymbolicLink() || fs.readFileSync(backup, 'utf8') !== existing) throw new Error('An existing native-host backup differs; it was not overwritten.');
-      } else fs.writeFileSync(backup, existing, { mode: 0o600, flag: 'wx' });
+        if (verifiedHostFile(backup) !== existing) throw new Error('An existing native-host backup differs; it was not overwritten.');
+      } else { fs.writeFileSync(backup, existing, { mode: 0o600, flag: 'wx' }); verifiedHostFile(backup); }
       const staged = file.path + '.new-' + process.pid;
       try {
         fs.writeFileSync(staged, file.content, { mode: file.mode, flag: 'wx' });
+        verifiedHostFile(staged);
         fs.renameSync(staged, file.path);
+        verifiedHostFile(file.path);
       } finally {
         if (fs.existsSync(staged)) fs.unlinkSync(staged);
       }
       continue;
     }
     fs.writeFileSync(file.path, file.content, { mode: file.mode, flag: 'wx' });
+    verifiedHostFile(file.path);
   }
   if (!dryRun && value.registry_key) {
     if (process.platform !== 'win32') throw new Error('Windows registration must run on Windows.');

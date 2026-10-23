@@ -23,44 +23,41 @@ task from a real Pro chat has not been verified yet. Setup needs that check too.
 
 ## Setup
 
-Install [ChurnThemTokens from the Chrome Web Store](https://chromewebstore.google.com/detail/nmmgjnldkinoellekdjmmdgcjadmabok) when its listing becomes available. That
-adds the extension without Chrome developer mode. The computer helper still
-needs local setup and a project folder you approve. Tell the coding agent on
-your computer:
+Give the [repository](https://github.com/uncmatteth/ChurnThemTokens) to the coding agent on your computer and say:
 
 > Install https://github.com/uncmatteth/ChurnThemTokens. Read AGENTS.md and handle
 > the setup yourself. Use my current project folder, connect my existing ChatGPT
 > Pro chat, and verify it with the quick check. Only ask me for a specific browser
 > or OS confirmation that you cannot perform yourself.
 
-The [setup skill](skills/churn-them-tokens) is included. To install it in Codex,
-tell your agent:
+The agent sets up the local helper and opens the [Chrome Web Store listing](https://chromewebstore.google.com/detail/nmmgjnldkinoellekdjmmdgcjadmabok)
+in your existing profile when the listing is available. Chrome may require you
+to click **Add to Chrome**. The OS may ask you to allow screen control. Those
+are the only setup confirmations the agent should hand back to you; it resumes
+the rest of the work. No Chrome Developer Mode or unpacked extension steps.
 
-> Install the skill from https://github.com/uncmatteth/ChurnThemTokens/tree/main/skills/churn-them-tokens.
-
-Your agent should do the setup. If Chrome or the OS needs your approval, it
-should ask for that specific click.
+The portable [setup skill](skills/churn-them-tokens) is optional for later
+agent tasks. Installing it is not another requirement for this setup.
 
 It uses your own ChatGPT login. If you're signed out, the agent opens sign-in
 and you enter your password/passkey and MFA. Your login stays in the browser.
 
 ## Use it when you need it
 
-Once the skill is installed, call it with a task:
+If you installed the optional skill, you can call it with a task:
 
 > Use $churn-them-tokens to read this project's README and tell me what's unfinished.
 
 It only runs when you ask. The agent connects the Pro chat, checks it, submits
 the task and disconnects afterward. The full live flow still needs verification.
 
-Connect for a task, then disconnect when you're done. After setup, the extension
-has these controls:
+After Chrome adds the extension, its first task or quick check connects and runs
+with one click:
 
 1. Open your ChatGPT chat and select the Pro model.
-2. Open **ChurnThemTokens**, read its data disclosure, and click **Agree & connect this Pro chat**.
-3. Check the computer and folders shown. **AIClickThatShit** starts by default when desktop access is enabled locally. Turn it off if you only want file and command work.
-4. Enter the task and click **Allow tools & run task**.
-5. Click **Disconnect & stop managed jobs** when you're finished.
+2. Open **ChurnThemTokens** and click **Connect & run quick check**, or enter a task and click **Connect & run task**. The button connects the selected chat and starts that action.
+3. The panel shows the computer and folders after connection. **AIClickThatShit** starts by default when desktop access is enabled locally; its Turn off control remains available.
+4. Click **Disconnect & stop managed jobs** when you're finished.
 
 You can ask your agent to handle these steps too.
 
@@ -165,13 +162,13 @@ Read [AGENTS.md](AGENTS.md). You'll need Node.js 18.17+ and Git. File and comman
 tools have no npm runtime dependencies. Run from this checkout:
 
 ```sh
-node install.js --root project=/absolute/approved/project --allow-write --allow-exec --dry-run
-node install.js --root project=/absolute/approved/project --allow-write --allow-exec
+node install.js --root project=/absolute/approved/project --allow-write --allow-exec --allow-desktop --dry-run
+node install.js --root project=/absolute/approved/project --allow-write --allow-exec --allow-desktop
 ```
 
 The installer creates private configuration, registers the helper and checks
-the local connection. The agent still needs to connect the Pro chat and run
-the quick check.
+the local connection. The agent then handles the supported Chrome steps and
+runs the one-click Pro quick check.
 
 Repeating the same installation is safe; conflicting configuration is refused.
 Use `--config /absolute/private/config.json` for a separate instance, or

@@ -99,6 +99,16 @@ async function start(task, consent) {
     return summary();
   } catch (error) { current.running = false; throw error; }
 }
+async function startFromActiveTab(task, consent) {
+  if (consent !== true || typeof task !== 'string' || !task.trim() || task.length > 16000) throw new Error('Enter a task and authorize local actions for this chat.');
+  if (session?.running) throw new Error('Finish or stop the current task first.');
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) throw new Error('Open the ChatGPT Pro chat you want to use first.');
+  const path = LocalBridgeProtocol.chatUrl(tab.url).pathname;
+  if (session && (session.tabId !== tab.id || session.path !== path)) close();
+  if (!session) await connect(tab.id);
+  return start(task, consent);
+}
 async function receive(message, sender) {
   const current = session;
   if (!current || !current.running || sender.tab?.id !== current.tabId) throw new Error('This chat is not attached to an active bridge run.');
@@ -138,7 +148,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (!popup) throw new Error('Only the bridge panel can manage a connection.');
     if (message.kind === 'status') return summary();
     if (message.kind === 'connect') { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); return connect(tab.id); }
-    if (message.kind === 'start') return start(message.task, message.consent);
+    if (message.kind === 'start') return startFromActiveTab(message.task, message.consent);
     if (message.kind === 'desktop-start') return desktopStart();
     if (message.kind === 'desktop-stop') return desktopStop();
     if (message.kind === 'stop') { close(); return summary(); }

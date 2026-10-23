@@ -26,7 +26,7 @@ function worker() {
     runtime: { getURL: name => 'chrome-extension://fixture/' + name, connectNative: () => port, onMessage: { addListener: fn => { listener = fn; } } },
     tabs: {
       get: async () => ({ id: 7, url: context.url }),
-      query: async () => [{ id: 7 }],
+      query: async () => [{ id: 7, url: context.url }],
       sendMessage: async (id, message) => {
         posts.push(message);
         return message.kind === 'bridge-probe' ? { proModel: context.pro, model: context.pro ? 'GPT Pro' : 'Sol' } : { started: true };
@@ -44,6 +44,19 @@ test('relay cannot connect or start against a non-Pro selection', async () => {
   const w = worker(); w.context.pro = false;
   const refused = await w.send({ kind: 'connect' });
   assert.equal(refused.ok, false); assert.match(refused.error, /actual Pro/); assert.equal(w.calls.length, 0);
+  const oneClick = await w.send({ kind: 'start', task: 'read code', consent: true });
+  assert.equal(oneClick.ok, false); assert.match(oneClick.error, /actual Pro/); assert.equal(w.calls.length, 0);
+});
+test('one task click connects the active Pro chat and starts without a separate connect click', async () => {
+  const w = worker();
+  assert.equal((await w.send({ kind: 'start', task: 'read code', consent: false })).ok, false);
+  assert.equal(w.calls.length, 0);
+  const result = await w.send({ kind: 'start', task: 'read code', consent: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.connected, true);
+  assert.equal(result.value.running, true);
+  assert.equal(w.posts.filter(message => message.kind === 'bridge-start').length, 1);
+  await w.send({ kind: 'stop' });
 });
 test('relay requires explicit session consent and sends no task without it', async () => {
   const w = worker(); assert.equal((await w.send({ kind: 'connect' })).ok, true);
@@ -64,11 +77,12 @@ test('AIClickThatShit starts by default and only the panel can enable or stop it
   assert.equal((await w.send({ kind: 'desktop-stop' })).value.desktop.active, false);
   await w.send({ kind: 'stop' });
 });
-test('changing conversations while idle blocks the initial task and private prompt', async () => {
+test('one-click start reconnects to the active conversation instead of sending to the old one', async () => {
   const w = worker(); await w.send({ kind: 'connect' });
   w.context.url = 'https://chatgpt.com/c/another-conversation';
   const result = await w.send({ kind: 'start', task: 'read code', consent: true });
-  assert.equal(result.ok, false); assert.equal(w.posts.some(message => message.kind === 'bridge-start'), false);
+  assert.equal(result.ok, true);
+  assert.equal(w.posts.find(message => message.kind === 'bridge-start').path, '/c/another-conversation');
   await w.send({ kind: 'stop' });
 });
 test('the request limit still permits a verified completion packet', async () => {

@@ -8,6 +8,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn, execFile, spawnSync } = require('node:child_process');
 const { promisify } = require('node:util');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const execFileAsync = promisify(execFile);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const uuid = () => crypto.randomUUID();
@@ -136,6 +137,7 @@ class DirectBridge {
     this.jobs = new Map();
     this.dedupe = new Map();
     this.locks = new Map();
+    this.authorization = new AsyncLocalStorage();
     this.tools = [];
     this.handlers = new Map();
     this.helper = null;
@@ -165,6 +167,7 @@ class DirectBridge {
   }
   project(id) { const root = this.projects.get(id); if (!root) fail(`Unknown project: ${id}. Call project_list first.`); if (fs.realpathSync(root) !== root) fail('Project root was replaced by a symlink'); return root; }
   enabled(permission) {
+    this.authorization.getStore()?.();
     if (this.closing) fail('Bridge is stopped; reconnect before requesting actions');
     const current = this.configFile ? jsonRead(this.configFile, this.config) : this.config;
     if (current.paused) fail('Bridge is paused locally');
@@ -220,6 +223,7 @@ class DirectBridge {
   async locked(key, fn) {
     const previous = this.locks.get(key) || Promise.resolve();
     const next = previous.catch(() => {}).then(() => {
+      this.authorization.getStore()?.();
       if (this.closing) fail('Bridge is stopped; queued actions were cancelled');
       return fn();
     });
@@ -255,18 +259,20 @@ class DirectBridge {
     this.tools.push({ name, description, inputSchema: schema, annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly, idempotentHint: readOnly, openWorldHint: ['exec', 'browser', 'desktop'].includes(permission) } });
     this.handlers.set(name, { schema, permission, handler });
   }
-  async call(name, args = {}, scopes = null) {
-    const entry = this.handlers.get(name);
-    if (!entry) fail(`Unknown tool: ${name}`);
-    validate(entry.schema, args);
-    this.enabled(entry.permission);
-    if (scopes && name === 'browser' && args.operation === 'download' && !scopes.includes('bridge.write')) fail('OAuth grant lacks bridge.write for downloads');
-    if (scopes && !scopes.includes(`bridge.${entry.permission}`)) fail(`OAuth grant lacks bridge.${entry.permission}`);
-    try {
-      const value = await entry.handler(args);
-      this.audit(name, args, 'ok');
-      return value;
-    } catch (error) { this.audit(name, args, 'error'); throw error; }
+  async call(name, args = {}, scopes = null, authGuard = null) {
+    return this.authorization.run(authGuard, async () => {
+      const entry = this.handlers.get(name);
+      if (!entry) fail(`Unknown tool: ${name}`);
+      validate(entry.schema, args);
+      this.enabled(entry.permission);
+      if (scopes && name === 'browser' && args.operation === 'download' && !scopes.includes('bridge.write')) fail('OAuth grant lacks bridge.write for downloads');
+      if (scopes && !scopes.includes(`bridge.${entry.permission}`)) fail(`OAuth grant lacks bridge.${entry.permission}`);
+      try {
+        const value = await entry.handler(args);
+        this.audit(name, args, 'ok');
+        return value;
+      } catch (error) { this.audit(name, args, 'error'); throw error; }
+    });
   }
   registerTools() {
     const p = { project: str(64) }, f = { ...p, path: str(1024) };
@@ -431,6 +437,7 @@ class DirectBridge {
   }
   checkRef(ref) { if (!/^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$/.test(ref) || ref.includes('..') || ref.endsWith('/') || ref.includes('//')) fail('Invalid Git reference'); }
   async git(project, args, readOnly = false) {
+    this.authorization.getStore()?.();
     const common = ['--no-pager', '--literal-pathspecs', '-c', `core.hooksPath=${path.join(this.state, 'empty-hooks')}`, '-c', 'core.fsmonitor=false', '-C', this.project(project)];
     const options = { timeout: 30000, maxBuffer: LIMIT, env: { ...cleanEnv(), GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' }, windowsHide: true };
     const filters = [];
@@ -516,6 +523,7 @@ class DirectBridge {
     this.helperQueue = task; return task;
   }
   uiRequest(args) {
+    this.authorization.getStore()?.();
     if (this.closing) return Promise.reject(new Error('Bridge is stopped; queued UI actions were cancelled'));
     if (!this.helper) {
       const companion = desktopCompanionCommand(this.config);
@@ -570,4 +578,4 @@ class DirectBridge {
     return this.closePromise;
   }
 }
-module.exports = { DirectBridge, hash, inside, privateDir, atomic, jsonRead, jsonWrite, cleanEnv, validate, LIMIT };
+module.exports = { DirectBridge, hash, inside, privateDir, privateWindowsAcl, atomic, jsonRead, jsonWrite, cleanEnv, validate, LIMIT };

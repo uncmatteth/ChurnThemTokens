@@ -20,7 +20,8 @@ test('agent installer dry run makes no files or browser changes', async t => {
   assert.equal(result.status, 'planned_no_changes'); assert.equal(result.native_handshake, null);
   assert.equal(fs.existsSync(f.config), false); assert.equal(fs.existsSync(f.home), false);
   assert.equal(result.browser_steps[0].url, 'https://chromewebstore.google.com/detail/nmmgjnldkinoellekdjmmdgcjadmabok');
-  assert.equal(result.browser_steps.at(-1).action, 'verify_live_round_trip');
+  assert.equal(result.browser_steps.at(-1).action, 'open_extension_and_verify');
+  assert.equal(result.browser_steps.at(-1).button, 'Connect & run quick check');
 });
 test('agent installer verifies real native transport and repeats without changing config or tokens', async t => {
   const f = fixture(t), result = await install(f.options, f.environment);
@@ -37,8 +38,8 @@ test('agent installer verifies real native transport and repeats without changin
 });
 test('agent installer refuses registration conflicts before creating configuration', async t => {
   const f = fixture(t), folder = path.join(f.home, '.config', 'google-chrome', 'NativeMessagingHosts');
-  fs.mkdirSync(folder, { recursive: true });
-  const registration = path.join(folder, 'com.chatgpt.local_bridge.json'); fs.writeFileSync(registration, '{"different":true}');
+  fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
+  const registration = path.join(folder, 'com.chatgpt.local_bridge.json'); fs.writeFileSync(registration, '{"different":true}', { mode: 0o600 });
   await assert.rejects(install(f.options, f.environment), /not overwritten/);
   assert.equal(fs.existsSync(f.config), false); assert.equal(fs.readFileSync(registration, 'utf8'), '{"different":true}');
 });
@@ -66,6 +67,17 @@ test('installer migrates only its exact pre-store Chrome origin and keeps a reve
   await assert.rejects(install(f.options, f.environment), /differs/);
   assert.notEqual(fs.readFileSync(registration, 'utf8'), current);
 });
+test('installer refuses a readable or hard-linked native host before executing it', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t);
+  await install(f.options, f.environment);
+  const plan = native.plan({ config: f.config, platform: 'linux', home: f.home });
+  fs.chmodSync(plan.host_manifest, 0o644);
+  await assert.rejects(install({ ...f.options, dryRun: true }, f.environment), /private/);
+  fs.chmodSync(plan.host_manifest, 0o600);
+  const other = plan.wrapper + '.hardlink';
+  fs.linkSync(plan.wrapper, other);
+  await assert.rejects(install({ ...f.options, dryRun: true }, f.environment), /single-link/);
+});
 test('native setup uses the correct macOS Chrome registration directory', t => {
   const f = fixture(t), settings = { stateDir: path.join(f.temp, 'state'), projects: [{ id: 'project', path: f.root }] };
   const plan = native.plan({ config: f.config, settings, platform: 'darwin', home: f.home });
@@ -80,6 +92,11 @@ test('native setup plans a private Windows host and current-user registration', 
   assert.equal(plan.host_manifest, 'C:\\Users\\Tommy\\AppData\\Local\\ChurnThemTokens\\state\\com.chatgpt.local_bridge.json');
   assert.match(plan.files[0].content, /@echo off/);
   assert.match(plan.files[0].content, /"%~1"/);
+});
+test('Windows native setup refuses shell metacharacters in host paths', async () => {
+  const settings = { stateDir: 'C:\\Users\\bad&name\\ChurnThemTokens\\state', projects: [{ id: 'project', path: 'C:\\work' }] };
+  assert.throws(() => native.plan({ config: 'C:\\Users\\bad&name\\ChurnThemTokens\\config.json', settings, platform: 'win32', node: 'C:\\Program Files\\nodejs\\node.exe' }), /metacharacters/);
+  await assert.rejects(handshake({ platform: 'win32', wrapper: 'C:\\Users\\bad&name\\host.cmd', extension_id: 'a'.repeat(32) }), /metacharacters/);
 });
 test('Windows native wrapper returns a real handshake before clean EOF', { skip: process.platform !== 'win32' }, async t => {
   const f = fixture(t);

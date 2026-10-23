@@ -44,6 +44,10 @@ function sameSettings(existing, requested) {
 function handshake(plan) {
   return new Promise((resolve, reject) => {
     const origin = `chrome-extension://${plan.extension_id}/`;
+    if (plan.platform === 'win32' && /["\r\n&|^()%!<>]/.test(plan.wrapper)) {
+      reject(new Error('Windows native-host path contains command-shell metacharacters.'));
+      return;
+    }
     const child = plan.platform === 'win32'
       ? spawn('cmd.exe', ['/d', '/c', plan.wrapper, origin], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       : spawn(plan.wrapper, [origin], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -121,8 +125,7 @@ async function install(options, environment = {}) {
     browser_steps: [
       { action: 'install_from_chrome_web_store', url: `https://chromewebstore.google.com/detail/${plan.extension_id}`, extension_id: plan.extension_id, instruction: 'Open the store listing in the intended existing Chrome profile and choose Add to Chrome.' },
       { action: 'select_existing_chat', origin: 'https://chatgpt.com', model: 'Pro', instruction: 'Use the signed-in session. Verify the actual selected model; never copy browser state or change accounts.' },
-      { action: 'open_extension', name: 'ChurnThemTokens', button: 'Agree & connect this Pro chat' },
-      { action: 'verify_live_round_trip', button: 'Allow tools & run quick check', evidence: 'Actual Pro requests; matching file hashes and real command exit status returned to that same chat.' },
+      { action: 'open_extension_and_verify', name: 'ChurnThemTokens', button: 'Connect & run quick check', evidence: 'Actual Pro requests; matching file hashes and real command exit status returned to that same chat.' },
     ],
     agent_instruction: 'Own these browser steps with supported browser tools. Ask the person only for a specific unavoidable local consent. Do not call the connection verified until the live round trip succeeds.',
   };
