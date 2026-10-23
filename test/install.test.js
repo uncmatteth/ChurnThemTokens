@@ -4,8 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { install, optionsFor } = require('../install');
+const crypto = require('node:crypto');
+const { install, optionsFor, handshake } = require('../install');
 const native = require('../browser-relay/setup');
+const { jsonWrite } = require('../core');
 function fixture(t) {
   const temp = fs.mkdtempSync(path.join(process.platform === 'win32' ? os.homedir() : os.tmpdir(), 'churn-install-'));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
@@ -78,4 +80,16 @@ test('native setup plans a private Windows host and current-user registration', 
   assert.equal(plan.host_manifest, 'C:\\Users\\Tommy\\AppData\\Local\\ChurnThemTokens\\state\\com.chatgpt.local_bridge.json');
   assert.match(plan.files[0].content, /@echo off/);
   assert.match(plan.files[0].content, /"%~1"/);
+});
+test('Windows native wrapper returns a real handshake before clean EOF', { skip: process.platform !== 'win32' }, async t => {
+  const f = fixture(t);
+  const settings = { instanceId: crypto.randomUUID(), stateDir: path.join(f.temp, 'private', 'state'), projects: [{ id: 'project', path: f.root }], permissions: { write: false, exec: false, browser: false, desktop: false }, paused: false };
+  fs.mkdirSync(path.dirname(f.config), { recursive: true });
+  jsonWrite(f.config, settings);
+  fs.mkdirSync(settings.stateDir);
+  const plan = native.plan({ config: f.config, settings, platform: 'win32' });
+  fs.writeFileSync(plan.wrapper, plan.files[0].content);
+  const proof = await handshake(plan);
+  assert.equal(proof.verified, true);
+  assert.equal(proof.hostname, os.hostname());
 });

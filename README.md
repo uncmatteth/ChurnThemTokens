@@ -60,7 +60,7 @@ has these controls:
 2. Open **ChurnThemTokens**, read its data disclosure, and click **Agree & connect this Pro chat**.
 3. Check the computer and folders shown. **AIClickThatShit** starts by default when desktop access is enabled locally. Turn it off if you only want file and command work.
 4. Enter the task and click **Allow tools & run task**.
-5. Click **Disconnect & stop** when you're finished.
+5. Click **Disconnect & stop managed jobs** when you're finished.
 
 You can ask your agent to handle these steps too.
 
@@ -109,7 +109,7 @@ be verified on the actual desktop before claiming unattended access works.
   Approve the operating system's sharing prompt if one appears.
 - **Turn off AIClickThatShit** stops the extension's desktop sharing session.
   The Pro chat stays connected for file and command work.
-- **Disconnect & stop** closes the extension's helper session and stops its
+- **Disconnect & stop managed jobs** closes the extension's helper session and stops its
   owned jobs, including desktop sharing.
 
 Pro cannot enable desktop access through a desktop tool request; enabling it
@@ -184,7 +184,9 @@ Never inspect or copy that profile's login files.
 
 File tools stay inside the folders you approve. Shell commands run as your OS
 user and can reach outside those folders. Check the permissions before running
-a task. **Disconnect & stop** closes the helper and stops its running jobs.
+a task. **Disconnect & stop managed jobs** closes the helper and stops its
+tracked jobs. A command that deliberately starts a detached process can outlive
+the bridge; inspect that command separately.
 See [SECURITY.md](SECURITY.md) and [TESTING.md](TESTING.md).
 
 Built from the MIT-licensed Direct Chat executor in

@@ -45,7 +45,7 @@ function handshake(plan) {
   return new Promise((resolve, reject) => {
     const origin = `chrome-extension://${plan.extension_id}/`;
     const child = plan.platform === 'win32'
-      ? spawn('cmd.exe', ['/d', '/s', '/c', `"${plan.wrapper}" "${origin}"`], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      ? spawn('cmd.exe', ['/d', '/c', plan.wrapper, origin], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       : spawn(plan.wrapper, [origin], { stdio: ['pipe', 'pipe', 'pipe'] });
     const pieces = [], received = new Set(); let size = 0, finished = false, parsed = 0;
     const timer = setTimeout(() => { child.kill(); finish(new Error('Native helper handshake timed out. Inspect the local process before retrying.')); }, 10000);
