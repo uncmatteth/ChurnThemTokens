@@ -23,7 +23,7 @@ test('agent installer dry run makes no files or browser changes', async t => {
   assert.equal(result.browser_steps.at(-1).action, 'open_extension_and_verify');
   assert.equal(result.browser_steps.at(-1).button, 'Connect & run quick check');
 });
-test('agent installer verifies real native transport and repeats without changing config or tokens', async t => {
+test('agent installer verifies real native transport and repeats without changing config or tokens', { skip: process.platform === 'win32' }, async t => {
   const f = fixture(t), result = await install(f.options, f.environment);
   assert.equal(result.native_handshake.verified, true); assert.equal(result.native_handshake.hostname, os.hostname());
   assert.equal(result.native_handshake.invokes_codex, false); assert.equal(result.native_handshake.makes_model_api_calls, false);
@@ -50,7 +50,7 @@ test('installer rejects unsafe roots, unsupported platforms and malformed option
   for (const argv of [['--config'], ['--root', '--allow-write'], ['--unknown']]) assert.throws(() => optionsFor(argv));
   assert.equal(fs.existsSync(f.config), false);
 });
-test('installer migrates only its exact pre-store Chrome origin and keeps a reversible backup', async t => {
+test('installer migrates only its exact pre-store Chrome origin and keeps a reversible backup', { skip: process.platform === 'win32' }, async t => {
   const f = fixture(t);
   await install(f.options, f.environment);
   const registration = path.join(f.home, '.config', 'google-chrome', 'NativeMessagingHosts', 'com.chatgpt.local_bridge.json');
