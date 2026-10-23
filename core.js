@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
-const { spawn, execFile } = require('node:child_process');
+const { spawn, execFile, spawnSync } = require('node:child_process');
 const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -19,11 +19,17 @@ const inside = (root, target) => {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 };
 function fail(message) { throw new Error(message); }
+function privateWindowsAcl(target) {
+  if (process.platform !== 'win32') return;
+  const check = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(__dirname, 'scripts', 'check-private-windows-acl.ps1'), target], { windowsHide: true, stdio: 'ignore', timeout: 10000, env: cleanEnv() });
+  if (check.error || check.status !== 0) fail('Bridge state/configuration must be owned by this Windows account with a private ACL');
+}
 function privateDir(dir, verify = false) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (verify) {
     const stat = fs.lstatSync(dir);
     if (!stat.isDirectory() || stat.isSymbolicLink() || (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) fail('Bridge state directories must be private and owned by the current user');
+    privateWindowsAcl(dir);
   }
 }
 function jsonRead(file, fallback) {
@@ -33,6 +39,8 @@ function jsonRead(file, fallback) {
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.nlink !== 1 || (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) fail('Private state/configuration must be a private regular file owned by the current user');
+    privateWindowsAcl(path.dirname(file));
+    privateWindowsAcl(file);
     return JSON.parse(fs.readFileSync(fd, 'utf8'));
   }
   catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }

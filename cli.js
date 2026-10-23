@@ -40,7 +40,8 @@ function lockServer(state) {
   return () => { if (jsonRead(file, null)?.nonce === value.nonce) fs.unlinkSync(file); };
 }
 function defaultConfig(home = os.homedir(), platform = process.platform, env = process.env) {
-  const base = platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'ChurnThemTokens') : platform === 'win32' ? path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'ChurnThemTokens') : path.join(home, '.local', 'share', 'churn-them-tokens');
+  const legacyWindows = path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'ChurnThemTokens', 'config.json');
+  const base = platform === 'darwin' ? path.join(home, 'Library', 'Application Support', 'ChurnThemTokens') : platform === 'win32' ? (fs.existsSync(legacyWindows) ? path.dirname(legacyWindows) : path.join(home, '.churn-them-tokens')) : path.join(home, '.local', 'share', 'churn-them-tokens');
   return path.join(base, 'config.json');
 }
 function help() {
@@ -83,7 +84,7 @@ async function main(argv = process.argv.slice(2)) {
     const config = { version: 1, instanceId: crypto.randomUUID(), stateDir, projects, permissions, paused: false, port: Number(args.port || 8768), publicUrl: publicOrigin(args['public-url']), python: args.python || (process.platform === 'win32' ? 'python' : 'python3'), chromiumExecutable: args['chromium-executable'] || null };
     if (!Number.isInteger(config.port) || config.port < 1024 || config.port > 65535) throw new Error('Port must be 1024..65535');
     if (args['dry-run']) { console.log(JSON.stringify({ dry_run: true, config: file, ...config }, null, 2)); return; }
-    privateDir(path.dirname(file));
+    privateDir(path.dirname(file), true);
     const bridge = new DirectBridge(config);
     config.localBearerToken = crypto.randomBytes(32).toString('base64url');
     jsonWrite(file, config); await bridge.close();
