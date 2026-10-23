@@ -15,7 +15,7 @@ function render() {
   const error = actionError || current.error || '';
   elements.error.hidden = !error; elements.error.textContent = friendlyError(error);
   const permissions = current.permissions || {};
-  elements.permissions.textContent = [permissions.write ? 'Read and change files' : 'Read files', permissions.exec && 'Run commands', permissions.browser && 'Use browser tools', permissions.desktop && 'AIClickThatShit available (optional)'].filter(Boolean).join(' · ');
+  elements.permissions.textContent = [permissions.write ? 'Read and change files' : 'Read files', permissions.exec && 'Run commands', permissions.browser && 'Use browser tools', permissions.desktop && 'AIClickThatShit available'].filter(Boolean).join(' · ');
   elements.roots.replaceChildren(...(current.projects || []).map(project => {
     const item = document.createElement('li'); item.textContent = `${project.id}: ${project.root}`; return item;
   }));

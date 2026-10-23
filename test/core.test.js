@@ -251,10 +251,11 @@ test('Git inspection, permanent worktree creation, isolation and clean removal',
   const { root, bridge, call } = fixture(t); initGit(root);
   const tree = await call('worktree_create', { project: 'sample', name: 'worker', branch: 'worker-feature' });
   assert.equal(tree.permanent, true); assert.ok(fs.existsSync(path.join(tree.path, 'code.txt')));
-  await call('file_write', { project: 'worker', path: 'code.txt', content: 'worker change', expected_sha256: hash('original\n') });
+  const checkoutContent = fs.readFileSync(path.join(tree.path, 'code.txt'), 'utf8');
+  await call('file_write', { project: 'worker', path: 'code.txt', content: 'worker change', expected_sha256: hash(checkoutContent) });
   assert.equal(fs.readFileSync(path.join(root, 'code.txt'), 'utf8'), 'original\n');
   await assert.rejects(call('worktree_remove', { project: 'worker' }), /not clean/);
-  await call('file_write', { project: 'worker', path: 'code.txt', content: 'original\n', expected_sha256: hash('worker change') });
+  await call('file_write', { project: 'worker', path: 'code.txt', content: checkoutContent, expected_sha256: hash('worker change') });
   await call('worktree_remove', { project: 'worker' }); assert.equal(bridge.projects.has('worker'), false);
   assert.match((await call('git_read', { project: 'sample', operation: 'branches' })).stdout, /worker-feature/);
 });

@@ -3,7 +3,7 @@
 I already pay for ChatGPT Pro. I want it to work on my computer the way Codex
 does: read files, make changes and run commands. Sometimes the job also needs
 someone to look at the screen and click something. That part is called
-**AIClickThatShit**, and it is an optional part of ChurnThemTokens.
+**AIClickThatShit**, built into ChurnThemTokens.
 
 That's what I'm building here. A Chrome extension passes requests from your
 Pro chat to a helper on your computer, then sends the results back. Your login
@@ -66,9 +66,9 @@ You can ask your agent to handle these steps too.
 - Read, search and edit files, with hashes and backups.
 - Run commands and report their output and exit status.
 - Inspect Git and create separate worktrees.
-- Optional browser and desktop tools ([requirements](requirements-ui.txt)).
+- Built-in screen, mouse and keyboard control; [desktop dependencies](requirements-ui.txt) vary by OS.
 
-## AIClickThatShit: the optional mouse app
+## AIClickThatShit: screen and mouse control
 
 Some jobs need more than files and a terminal: inspect a window, click a button,
 type into an app, or check what actually appeared on screen. AIClickThatShit is
@@ -82,7 +82,7 @@ Here is how the parts fit together:
 | --- | --- |
 | Your ChatGPT Pro chat | Reads the task and requests actions. |
 | ChurnThemTokens Chrome extension | Connects that chat to your computer and returns tool results. |
-| Local helper | Runs the approved file, command and optional UI tools. |
+| Local helper | Runs the file, command and UI tools enabled during setup. |
 | AIClickThatShit | Starts by default and supplies screen images and mouse/keyboard actions. |
 
 **It is on by default when desktop access is enabled in the local helper.**
@@ -137,7 +137,7 @@ With that local permission enabled, connecting the chat starts AIClickThatShit
 by default. The operating system may still require sharing approval. Users can
 choose **Turn off AIClickThatShit** without disconnecting file and command tools.
 
-The optional dependencies are listed in [requirements-ui.txt](requirements-ui.txt).
+Desktop dependencies are listed in [requirements-ui.txt](requirements-ui.txt).
 Linux uses system GI, GStreamer/PipeWire and Pillow on Wayland, or PyAutoGUI on
 X11. macOS and Windows use PyAutoGUI and Pillow and may require screen/input
 permissions. Packaged builds must be built on the target operating system.

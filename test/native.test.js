@@ -107,7 +107,8 @@ test('native installer is a dry run by default and refuses conflicting registrat
   const value = plan({ config: f.configFile, home, platform: 'linux' });
   assert.match(extensionId(), /^[a-p]{32}$/);
   const result = install(value); assert.equal(result.dry_run, true); assert.equal(fs.existsSync(value.wrapper), false); assert.equal(fs.existsSync(home), false);
-  install(value, false); assert.equal(fs.statSync(value.wrapper).mode & 0o777, 0o700);
+  install(value, false);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(value.wrapper).mode & 0o777, 0o700);
   assert.deepEqual(JSON.parse(fs.readFileSync(value.host_manifest)).allowed_origins, [`chrome-extension://${extensionId()}/`]);
   assert.equal(install(value, false).dry_run, false);
   fs.writeFileSync(value.host_manifest, '{}'); assert.throws(() => install(value, false), /not overwritten/);
