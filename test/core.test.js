@@ -80,6 +80,20 @@ test('symlinks and hard links cannot bypass file boundaries', async t => {
   await assert.rejects(call('file_read', { project: 'sample', path: 'link' }), /Symlinks/);
   await assert.rejects(call('file_read', { project: 'sample', path: 'hard' }), /Hard-linked/);
 });
+test('structured reads reject a leaf replaced with a symlink after path validation', { skip: !fs.constants.O_NOFOLLOW }, async t => {
+  const f = fixture(t);
+  const outside = path.join(f.temp, 'private'); fs.writeFileSync(outside, 'private-marker');
+  const leaf = path.join(f.root, 'code.txt'); fs.writeFileSync(leaf, 'public');
+  const resolve = f.bridge.resolve.bind(f.bridge);
+  f.bridge.resolve = (...args) => {
+    const checked = resolve(...args);
+    fs.rmSync(checked); fs.symlinkSync(outside, checked);
+    f.bridge.resolve = () => checked; // model a swap after the checked path is returned
+    return checked;
+  };
+  await assert.rejects(f.call('file_read', { project: 'sample', path: 'code.txt' }), /ELOOP/);
+  await assert.rejects(f.call('file_read', { project: 'sample', path: 'code.txt', encoding: 'base64' }), /ELOOP/);
+});
 test('read-only, paused and OAuth scope failures never mutate', async t => {
   const { root, config, configFile, call, bridge } = fixture(t, { write: false });
   const args = { project: 'sample', path: 'a', content: 'x', expected_sha256: '' };

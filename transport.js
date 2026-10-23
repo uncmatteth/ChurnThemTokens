@@ -95,8 +95,18 @@ function html(res, text, refresh = '') {
 }
 function storeFile(bridge) { return path.join(bridge.state, 'oauth-state.json'); }
 function loadOAuth(bridge) {
-  const store = jsonRead(storeFile(bridge), { clients: {}, pending: {}, codes: {}, tokens: {}, refresh: {} });
+  const epoch = (bridge.configFile ? jsonRead(bridge.configFile, bridge.config) : bridge.config).oauthEpoch || null;
+  let store = jsonRead(storeFile(bridge), { epoch, clients: {}, pending: {}, codes: {}, tokens: {}, refresh: {} });
+  // Revoke rotates this value in the config first. Any request that loaded the
+  // old store before revocation may still save it, but cannot make it valid.
+  if ((store.epoch || null) !== epoch) store = { epoch, clients: {}, pending: {}, codes: {}, tokens: {}, refresh: {} };
   for (const key of ['pending', 'codes', 'tokens', 'refresh']) for (const [id, item] of Object.entries(store[key])) if (item.expires <= now()) delete store[key][id];
+  // Registrations alone confer no access. Drop abandoned registrations so an
+  // unauthenticated caller cannot permanently exhaust the bounded registry.
+  for (const [id, client] of Object.entries(store.clients)) {
+    const inUse = ['pending', 'codes', 'tokens', 'refresh'].some(key => Object.values(store[key]).some(item => item.client === id));
+    if (!inUse && client.created < now() - 86400) delete store.clients[id];
+  }
   return store;
 }
 function saveOAuth(bridge, store) { jsonWrite(storeFile(bridge), store); }
@@ -135,7 +145,19 @@ async function oauthRoute(bridge, req, res, url, origin) {
     let data; try { data = JSON.parse(await body(req, 16384)); } catch { error('Invalid registration JSON'); return true; }
     if (!data || !Array.isArray(data.redirect_uris) || !data.redirect_uris.length || data.redirect_uris.length > 4 || !data.redirect_uris.every(validRedirect) || (data.token_endpoint_auth_method && data.token_endpoint_auth_method !== 'none')) { error('Only public PKCE clients with recognized ChatGPT callback URIs are supported'); return true; }
     const store = loadOAuth(bridge);
-    if (Object.keys(store.clients).length >= 32) { sendJSON(res, 429, { error: 'registration_limit', error_description: 'Local operator must revoke old registrations' }); return true; }
+    if (Object.keys(store.clients).length >= 32) {
+      const protectedClients = new Set(['codes', 'tokens', 'refresh'].flatMap(key => Object.values(store[key]).map(item => item.client)));
+      for (const [requestId, item] of Object.entries(store.pending)) {
+        if (fs.existsSync(path.join(bridge.state, `approval-${requestId}.json`))) protectedClients.add(item.client);
+      }
+      // Give a newly registered client time to finish local approval. Another
+      // unauthenticated caller must not be able to evict its live pairing.
+      const abandoned = Object.entries(store.clients).filter(([id, client]) => !protectedClients.has(id) && client.created < now() - 300).sort((a, b) => a[1].created - b[1].created)[0];
+      if (abandoned) {
+        delete store.clients[abandoned[0]];
+        for (const [requestId, item] of Object.entries(store.pending)) if (item.client === abandoned[0]) delete store.pending[requestId];
+      } else { sendJSON(res, 429, { error: 'registration_limit', error_description: 'Registration capacity is in use; retry after the pairing window or revoke old grants locally' }, { 'Retry-After': '300' }); return true; }
+    }
     const id = random();
     store.clients[id] = { redirects: data.redirect_uris, created: now() }; saveOAuth(bridge, store);
     sendJSON(res, 201, { client_id: id, client_id_issued_at: now(), redirect_uris: data.redirect_uris, token_endpoint_auth_method: 'none', response_types: ['code'], grant_types: ['authorization_code', 'refresh_token'] }); return true;

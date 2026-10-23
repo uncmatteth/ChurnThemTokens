@@ -181,10 +181,27 @@ class DirectBridge {
     return target;
   }
   readBytes(id, relative) {
+    const { fd } = this.openStructuredFile(id, relative);
+    try {
+      const bytes = Buffer.alloc(LIMIT + 1);
+      let total = 0;
+      while (total < bytes.length) {
+        const count = fs.readSync(fd, bytes, total, bytes.length - total, total);
+        if (!count) break;
+        total += count;
+      }
+      if (total > LIMIT) fail('Expected a regular file no larger than 2 MiB');
+      return bytes.subarray(0, total);
+    } finally { fs.closeSync(fd); }
+  }
+  openStructuredFile(id, relative) {
     const file = this.resolve(id, relative);
-    const stat = fs.statSync(file);
-    if (!stat.isFile() || stat.size > LIMIT) fail('Expected a regular file no larger than 2 MiB');
-    return fs.readFileSync(file);
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1) fail('Expected a regular single-link file');
+      return { fd, stat };
+    } catch (error) { fs.closeSync(fd); throw error; }
   }
   audit(tool, args, outcome) {
     const record = { at: new Date().toISOString(), tool, argumentHash: hash(JSON.stringify(args)), outcome };
@@ -266,19 +283,23 @@ class DirectBridge {
       return { entries: entries.slice(0, a.limit || 200).map(e => ({ name: e.name, type: e.isDirectory() ? 'directory' : 'file' })), truncated: entries.length > (a.limit || 200) };
     });
     add('file_read', 'Read a bounded text file with SHA-256 for safe editing, or a base64 byte range for artifacts. Authentication files are never exposed.', obj({ ...f, encoding: enumeration('utf8', 'base64'), offset: num(0, Number.MAX_SAFE_INTEGER), length: num(1, LIMIT) }, ['project', 'path']), 'read', true, a => {
-      const file = this.resolve(a.project, a.path);
-      const stat = fs.statSync(file);
-      if (!stat.isFile()) fail('Expected a regular file');
       if (a.encoding !== 'base64') {
         const bytes = this.readBytes(a.project, a.path);
         if (bytes.includes(0)) fail('Binary file: request base64 instead');
         return { path: a.path, content: bytes.toString('utf8'), sha256: hash(bytes), bytes: bytes.length };
       }
-      const offset = a.offset || 0;
-      const buffer = Buffer.alloc(Math.min(a.length || 65536, Math.max(0, stat.size - offset)));
-      const fd = fs.openSync(file, 'r');
-      let count; try { count = fs.readSync(fd, buffer, 0, buffer.length, offset); } finally { fs.closeSync(fd); }
-      return { content: buffer.subarray(0, count).toString('base64'), offset, next_offset: offset + count, total_bytes: stat.size, eof: offset + count >= stat.size };
+      const { fd, stat } = this.openStructuredFile(a.project, a.path);
+      try {
+        const offset = a.offset || 0;
+        const buffer = Buffer.alloc(Math.min(a.length || 65536, Math.max(0, stat.size - offset)));
+        let total = 0;
+        while (total < buffer.length) {
+          const count = fs.readSync(fd, buffer, total, buffer.length - total, offset + total);
+          if (!count) break;
+          total += count;
+        }
+        return { content: buffer.subarray(0, total).toString('base64'), offset, next_offset: offset + total, total_bytes: stat.size, eof: offset + total >= stat.size };
+      } finally { fs.closeSync(fd); }
     });
     add('file_search', 'Search literal text inside the selected project only; bounded and skips dependency, build, credential and binary files.', obj({ ...p, query: str(4096), path: str(1024), limit: num(1, 200), case_sensitive: bool }, ['project', 'query']), 'read', true, a => {
       if (!a.query) fail('Search text must not be empty');

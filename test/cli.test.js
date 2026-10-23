@@ -29,7 +29,7 @@ test('CLI trusted capabilities, pause/resume and revocation are explicit', t => 
   let c = jsonRead(f.config); const old = c.localBearerToken; assert.ok(Object.values(c.permissions).every(Boolean));
   assert.equal(f.run('pause').status, 0); assert.equal(jsonRead(f.config).paused, true);
   assert.equal(f.run('resume').status, 0); assert.equal(jsonRead(f.config).paused, false);
-  const revoke = f.run('revoke'); assert.equal(revoke.status, 0); assert.notEqual(jsonRead(f.config).localBearerToken, old); assert.equal(revoke.stdout.includes(old), false);
+  const revoke = f.run('revoke'); assert.equal(revoke.status, 0); assert.notEqual(jsonRead(f.config).localBearerToken, old); assert.ok(jsonRead(f.config).oauthEpoch); assert.equal(revoke.stdout.includes(old), false);
 });
 test('CLI doctor does not claim a live ChatGPT connection or expose token', t => {
   const f = fixture(t); f.run('init', '--root', `sample=${f.root}`); const result = f.run('doctor');

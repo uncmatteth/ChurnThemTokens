@@ -109,8 +109,9 @@ async function main(argv = process.argv.slice(2)) {
   if (command === 'revoke' || command === 'set-public-url') {
     if (command === 'set-public-url') config.publicUrl = publicOrigin(args._[1]);
     config.localBearerToken = crypto.randomBytes(32).toString('base64url');
+    config.oauthEpoch = crypto.randomUUID();
     jsonWrite(file, config);
-    jsonWrite(path.join(config.stateDir, 'oauth-state.json'), { clients: {}, pending: {}, codes: {}, tokens: {}, refresh: {} });
+    jsonWrite(path.join(config.stateDir, 'oauth-state.json'), { epoch: config.oauthEpoch, clients: {}, pending: {}, codes: {}, tokens: {}, refresh: {} });
     for (const name of fs.readdirSync(config.stateDir)) if (/^approval-[A-Za-z0-9_-]{43}\.json$/.test(name)) fs.unlinkSync(path.join(config.stateDir, name));
     console.log('Existing HTTP grants were revoked. Restart the server after URL changes, then reconnect the app. Stdio/tunnel authorization is managed separately.'); return;
   }

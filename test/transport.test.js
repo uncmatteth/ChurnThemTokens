@@ -146,9 +146,65 @@ test('expired and locally revoked tokens cannot call tools', async t => {
   const old = f.config.localBearerToken; f.config.localBearerToken = crypto.randomBytes(32).toString('base64url'); jsonWrite(f.configFile, f.config);
   assert.equal((await f.mcp(rpc('ping'), old)).status, 401);
 });
+test('a stale OAuth save after revocation cannot resurrect an old grant', async t => {
+  const f = await httpFixture(t), p = await f.pairing();
+  const token = await (await f.form(p.exchange)).json();
+  const stale = loadOAuth(f.bridge);
+  f.config.oauthEpoch = crypto.randomUUID();
+  f.config.localBearerToken = crypto.randomBytes(32).toString('base64url');
+  jsonWrite(f.configFile, f.config);
+  jsonWrite(path.join(f.bridge.state, 'oauth-state.json'), { epoch: f.config.oauthEpoch, clients: {}, pending: {}, codes: {}, tokens: {}, refresh: {} });
+  jsonWrite(path.join(f.bridge.state, 'oauth-state.json'), stale);
+  assert.equal((await f.mcp(rpc('ping'), token.access_token)).status, 401);
+  assert.equal(loadOAuth(f.bridge).clients[p.client], undefined);
+});
 test('registration and public URL checks reject credential/redirect leaks', async t => {
   const f = await httpFixture(t);
   for (const value of ['https://attacker.invalid/callback', redirect + '?leak=1', 'http://chatgpt.com/connector_platform/oauth_redirect', 'https://chatgpt.com' + '@' + 'attacker.invalid/connector_platform/oauth_redirect']) assert.equal(validRedirect(value), false);
   const res = await f.request('/register', { method: 'POST', body: JSON.stringify({ redirect_uris: ['https://attacker.invalid/callback'] }) }); assert.equal(res.status, 400);
   for (const value of ['http://unsafe.invalid', 'https://user:pass' + '@' + 'host.invalid', 'https://host.invalid/path']) assert.throws(() => publicOrigin(value));
+});
+test('abandoned public registrations cannot permanently exhaust client slots', async t => {
+  const f = await httpFixture(t);
+  const register = () => f.request('/register', { method: 'POST', body: JSON.stringify({ redirect_uris: [redirect], token_endpoint_auth_method: 'none' }) });
+  const first = (await (await register()).json()).client_id;
+  for (let index = 1; index < 32; index++) assert.equal((await register()).status, 201);
+  assert.equal((await register()).status, 429);
+  assert.ok(loadOAuth(f.bridge).clients[first], 'recent client was evicted during pairing');
+  const store = loadOAuth(f.bridge); store.clients[first].created = Math.floor(Date.now() / 1000) - 301;
+  jsonWrite(path.join(f.bridge.state, 'oauth-state.json'), store);
+  const next = await register();
+  assert.equal(next.status, 201);
+  assert.equal(Object.keys(loadOAuth(f.bridge).clients).length, 32);
+  assert.equal(loadOAuth(f.bridge).clients[first], undefined);
+});
+test('registration eviction preserves a client with a live grant', async t => {
+  const f = await httpFixture(t);
+  const paired = await f.pairing('bridge.read');
+  const token = await (await f.form(paired.exchange)).json();
+  const register = () => f.request('/register', { method: 'POST', body: JSON.stringify({ redirect_uris: [redirect] }) });
+  for (let index = 1; index < 32; index++) assert.equal((await register()).status, 201);
+  assert.equal((await register()).status, 429);
+  const store = loadOAuth(f.bridge);
+  const oldestUnapproved = Object.keys(store.clients).find(id => id !== paired.client);
+  store.clients[oldestUnapproved].created = Math.floor(Date.now() / 1000) - 301;
+  jsonWrite(path.join(f.bridge.state, 'oauth-state.json'), store);
+  assert.equal((await register()).status, 201);
+  assert.ok(loadOAuth(f.bridge).clients[paired.client]);
+  assert.equal((await f.mcp(rpc('ping'), token.access_token)).status, 200);
+});
+test('pending authorization is preserved until expiry', async t => {
+  const f = await httpFixture(t);
+  const registration = await f.request('/register', { method: 'POST', body: JSON.stringify({ redirect_uris: [redirect] }) });
+  const client = (await registration.json()).client_id;
+  const query = new URLSearchParams({ client_id: client, redirect_uri: redirect, response_type: 'code', code_challenge_method: 'S256', code_challenge: 'a'.repeat(43), resource: origin + '/mcp', scope: 'bridge.read' });
+  for (let index = 0; index < 32; index++) assert.equal((await f.request('/authorize?' + query)).status, 200);
+  const oldest = Object.keys(loadOAuth(f.bridge).pending)[0];
+  assert.equal((await f.request('/authorize?' + query)).status, 429);
+  assert.ok(loadOAuth(f.bridge).pending[oldest]);
+  const store = loadOAuth(f.bridge); store.pending[oldest].expires = 1;
+  jsonWrite(path.join(f.bridge.state, 'oauth-state.json'), store);
+  assert.equal((await f.request('/authorize?' + query)).status, 200);
+  assert.equal(Object.keys(loadOAuth(f.bridge).pending).length, 32);
+  assert.equal(loadOAuth(f.bridge).pending[oldest], undefined);
 });
