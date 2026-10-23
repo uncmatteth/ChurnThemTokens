@@ -76,8 +76,14 @@ test('existing config and state reject insecure modes or redirected files withou
 });
 test('symlinks and hard links cannot bypass file boundaries', async t => {
   const { temp, root, call } = fixture(t); const outside = path.join(temp, 'private'); fs.writeFileSync(outside, 'private');
-  fs.symlinkSync(outside, path.join(root, 'link')); fs.linkSync(outside, path.join(root, 'hard'));
-  await assert.rejects(call('file_read', { project: 'sample', path: 'link' }), /Symlinks/);
+  try {
+    fs.symlinkSync(outside, path.join(root, 'link'));
+    await assert.rejects(call('file_read', { project: 'sample', path: 'link' }), /Symlinks/);
+  } catch (error) {
+    if (process.platform !== 'win32' || error.code !== 'EPERM') throw error;
+    t.diagnostic('Windows denied symlink creation; the hard-link boundary still runs.');
+  }
+  fs.linkSync(outside, path.join(root, 'hard'));
   await assert.rejects(call('file_read', { project: 'sample', path: 'hard' }), /Hard-linked/);
 });
 test('structured reads reject a leaf replaced with a symlink after path validation', { skip: !fs.constants.O_NOFOLLOW }, async t => {
