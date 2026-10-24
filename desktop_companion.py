@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+import webbrowser
 from pathlib import Path
 
 ICON = Path(__file__).resolve().parent / "browser-relay" / "bob128.png"
@@ -37,6 +38,9 @@ def gtk_window(backend):
     scope = Gtk.Label(label="Screen, mouse and keyboard control for your own computer. On GNOME without a sharing dialog, turning this on shares all monitors.", xalign=0)
     scope.set_line_wrap(True)
     panel.pack_start(scope, False, False, 0)
+    byline = Gtk.Label(xalign=0)
+    byline.set_markup('By Uncle Matt · <a href="https://bttlabs.fun">bttlabs.fun</a>')
+    panel.pack_start(byline, False, False, 0)
     if os.environ.get("WAYLAND_DISPLAY"):
         setup_hint = Gtk.Label(label="If a sharing dialog opens, select a monitor, enable Allow Remote Interaction, and keep Remember This Selection checked.", xalign=0)
         setup_hint.set_line_wrap(True)
@@ -110,6 +114,10 @@ def tk_window(backend):
     panel = ttk.Frame(window, padding=16)
     panel.pack(fill="both", expand=True)
     ttk.Label(panel, text="Screen, mouse and keyboard control for your own computer", wraplength=600).pack(anchor="w")
+    byline = ttk.Frame(panel)
+    byline.pack(anchor="w", pady=(6, 0))
+    ttk.Label(byline, text="By Uncle Matt · ").pack(side="left")
+    ttk.Button(byline, text="bttlabs.fun", command=lambda: webbrowser.open("https://bttlabs.fun")).pack(side="left")
     status = tk.StringVar(value="Stopped")
     ttk.Label(panel, textvariable=status, wraplength=600).pack(anchor="w", pady=10)
     row = ttk.Frame(panel); row.pack(fill="x")
