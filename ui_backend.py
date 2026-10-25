@@ -46,11 +46,26 @@ def macos_permissions():
     return result
 
 
-def capture_screen(gui):
+def request_macos_screen_recording():
+    """Ask macOS to present its normal consent flow; never grant access here."""
+    import ctypes
+    try:
+        library = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        request = library.CGRequestScreenCaptureAccess
+        request.argtypes = []
+        request.restype = ctypes.c_bool
+        return bool(request())
+    except (OSError, AttributeError):
+        return False
+
+
+def capture_screen(gui, request_permission=False):
     try:
         return gui.screenshot()
     except OSError as error:
         if sys.platform == "darwin" and macos_permissions()["screen_recording"] is False:
+            if request_permission and request_macos_screen_recording():
+                return gui.screenshot()
             raise ValueError("macOS Screen Recording is not allowed for this app. Enable the requesting app in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen it and try again.") from error
         raise
 
@@ -222,7 +237,7 @@ class Backend:
         gui = self.gui
         if op == "start":
             # A real frame is required before the extension labels this ready.
-            capture_screen(gui)
+            capture_screen(gui, request_permission=True)
             self.desktop_started = True
             op = "status"
         width, height = gui.size()

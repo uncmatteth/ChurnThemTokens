@@ -18,8 +18,10 @@ stays in Chrome. No Codex model calls. No model API key.
     Lulu
 ```
 
-**Still a preview.** The local tools and browser fixtures pass tests. A complete
-task from a real Pro chat has not been verified yet. Setup needs that check too.
+**Still a preview.** The local tools and browser fixtures pass tests. A real Pro
+chat has returned screenshots and visibly completed a click and typing task on
+Windows. Linux and macOS still need completed live checks, and clean disconnect
+must be verified on each computer.
 
 ## Setup
 
@@ -129,9 +131,10 @@ and mouse access. It has its own sharing session, so stop it in that window;
 disconnecting the extension does not close a separately opened standalone app.
 Opening this window alone does not connect Pro or prove a Pro-directed click.
 
-**Live verification is still outstanding:** a real Pro chat must request a
-harmless click, receive the result in that same chat, and disconnect cleanly.
-Local tests and a working standalone window do not establish that result.
+**Live verification is still outstanding on Linux and macOS.** Windows has
+returned screenshots and a visibly completed click and typing task to the same
+Pro chat. Clean disconnect still needs confirmation on each computer. Local
+tests and a working standalone window do not establish that result.
 
 <details>
 <summary>AIClickThatShit setup details for agents</summary>
@@ -146,6 +149,12 @@ Desktop dependencies are listed in [requirements-ui.txt](requirements-ui.txt).
 Linux uses system GI, GStreamer/PipeWire and Pillow on Wayland, or PyAutoGUI on
 X11. macOS and Windows use PyAutoGUI and Pillow and may require screen/input
 permissions. Packaged builds must be built on the target operating system.
+
+On macOS, Turn on requests Screen Recording through the operating system when
+capture fails because the grant is missing. If macOS requires a change in
+System Settings, the app names the setting. `--doctor` reads Screen Recording
+and Accessibility for the calling process without prompting; an SSH result does
+not establish a separately launched app's grant.
 
 To open the standalone window from this checkout, run
 `python3 desktop_companion.py` on Linux/macOS or `python desktop_companion.py`

@@ -133,16 +133,41 @@ class DesktopValidation(unittest.TestCase):
         self.gui.screenshot.side_effect = OSError("could not create image from display")
         with patch.object(module.sys, "platform", "darwin"):
             with patch.object(module, "macos_permissions", return_value={"screen_recording": False, "accessibility": True}, create=True):
-                try:
-                    self.backend.desktop({"operation": "start"})
-                except Exception as error:
-                    self.assertIsInstance(error, ValueError)
-                    self.assertIn("Screen Recording", str(error))
-                    self.assertIn("System Settings", str(error))
-                else:
-                    self.fail("A failed capture must not mark desktop control ready")
+                with patch.object(module, "request_macos_screen_recording", return_value=False, create=True):
+                    try:
+                        self.backend.desktop({"operation": "start"})
+                    except Exception as error:
+                        self.assertIsInstance(error, ValueError)
+                        self.assertIn("Screen Recording", str(error))
+                        self.assertIn("System Settings", str(error))
+                    else:
+                        self.fail("A failed capture must not mark desktop control ready")
         self.assertFalse(self.backend.desktop_started)
         self.gui.click.assert_not_called()
+
+    def test_macos_start_requests_permission_after_a_denied_frame_then_verifies_a_frame(self):
+        self.backend.desktop_started = False
+        self.gui.screenshot.side_effect = [OSError("could not create image from display"), object()]
+        with patch.object(module.sys, "platform", "darwin"):
+            with patch.object(module, "macos_permissions", return_value={"screen_recording": False, "accessibility": True}):
+                with patch.object(module, "request_macos_screen_recording", return_value=True, create=True):
+                    try:
+                        result = self.backend.desktop({"operation": "start"})
+                    except ValueError as error:
+                        self.fail(f"Start did not request the missing permission: {error}")
+        self.assertTrue(result["active"])
+        self.assertEqual(self.gui.screenshot.call_count, 2)
+
+    def test_macos_doctor_and_screenshots_do_not_request_new_privacy_grants(self):
+        self.gui.screenshot.side_effect = OSError("could not create image from display")
+        with patch.object(module.sys, "platform", "darwin"):
+            with patch.object(module, "macos_permissions", return_value={"screen_recording": False, "accessibility": True}):
+                with patch.object(module, "request_macos_screen_recording", create=True) as request:
+                    module.doctor()
+                    self.backend.desktop({"operation": "status"})
+                    with self.assertRaisesRegex(ValueError, "Screen Recording"):
+                        self.backend.desktop({"operation": "screenshot"})
+                    request.assert_not_called()
 
     def test_macos_capture_error_is_not_misreported_when_permission_is_granted(self):
         self.backend.desktop_started = False
