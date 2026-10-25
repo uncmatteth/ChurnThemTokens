@@ -12,7 +12,7 @@ import sys
 
 
 def doctor():
-    return {
+    result = {
         "python": sys.version.split()[0],
         "playwright_installed": importlib.util.find_spec("playwright") is not None,
         "pyautogui_installed": importlib.util.find_spec("pyautogui") is not None,
@@ -22,6 +22,37 @@ def doctor():
         "display_detected": bool(os.environ.get("DISPLAY")) or sys.platform in ("darwin", "win32"),
         "browser_and_desktop_live_verification": "not performed by doctor",
     }
+    if sys.platform == "darwin":
+        result["macos_permissions"] = macos_permissions()
+    return result
+
+
+def macos_permissions():
+    """Read this process's privacy grants without opening a permission prompt."""
+    import ctypes
+    result = {}
+    for name, framework, symbol in (
+        ("screen_recording", "CoreGraphics", "CGPreflightScreenCaptureAccess"),
+        ("accessibility", "ApplicationServices", "AXIsProcessTrusted"),
+    ):
+        try:
+            library = ctypes.CDLL(f"/System/Library/Frameworks/{framework}.framework/{framework}")
+            function = getattr(library, symbol)
+            function.argtypes = []
+            function.restype = ctypes.c_bool
+            result[name] = bool(function())
+        except (OSError, AttributeError):
+            result[name] = None
+    return result
+
+
+def capture_screen(gui):
+    try:
+        return gui.screenshot()
+    except OSError as error:
+        if sys.platform == "darwin" and macos_permissions()["screen_recording"] is False:
+            raise ValueError("macOS Screen Recording is not allowed for this app. Enable the requesting app in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen it and try again.") from error
+        raise
 
 
 def image_result(image):
@@ -191,14 +222,14 @@ class Backend:
         gui = self.gui
         if op == "start":
             # A real frame is required before the extension labels this ready.
-            gui.screenshot()
+            capture_screen(gui)
             self.desktop_started = True
             op = "status"
         width, height = gui.size()
         if op == "status":
             return {"active": self.desktop_started, "width": width, "height": height, "failsafe": True, "primary_display_only": True}
         if op == "screenshot":
-            return image_result(gui.screenshot())
+            return image_result(capture_screen(gui))
         if op in ("move", "click", "double_click", "drag"):
             x, y = a["x"], a["y"]
             if not (0 <= x < width and 0 <= y < height):

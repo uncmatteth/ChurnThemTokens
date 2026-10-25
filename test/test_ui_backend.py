@@ -115,6 +115,43 @@ class DesktopValidation(unittest.TestCase):
         self.gui.screenshot.side_effect = None
         self.assertTrue(self.backend.desktop({"operation": "start"})["active"])
 
+    def test_macos_doctor_reports_nonprompting_privacy_state(self):
+        permissions = {"screen_recording": False, "accessibility": True}
+        with patch.object(module.sys, "platform", "darwin"):
+            with patch.object(module, "macos_permissions", return_value=permissions, create=True):
+                result = module.doctor()
+        self.assertIn("macos_permissions", result)
+        self.assertEqual(result["macos_permissions"], permissions)
+
+    def test_macos_unavailable_preflight_does_not_invent_a_permission_denial(self):
+        self.assertTrue(hasattr(module, "macos_permissions"))
+        with patch("ctypes.CDLL", side_effect=OSError("framework unavailable")):
+            self.assertEqual(module.macos_permissions(), {"screen_recording": None, "accessibility": None})
+
+    def test_macos_denied_capture_explains_the_specific_system_permission(self):
+        self.backend.desktop_started = False
+        self.gui.screenshot.side_effect = OSError("could not create image from display")
+        with patch.object(module.sys, "platform", "darwin"):
+            with patch.object(module, "macos_permissions", return_value={"screen_recording": False, "accessibility": True}, create=True):
+                try:
+                    self.backend.desktop({"operation": "start"})
+                except Exception as error:
+                    self.assertIsInstance(error, ValueError)
+                    self.assertIn("Screen Recording", str(error))
+                    self.assertIn("System Settings", str(error))
+                else:
+                    self.fail("A failed capture must not mark desktop control ready")
+        self.assertFalse(self.backend.desktop_started)
+        self.gui.click.assert_not_called()
+
+    def test_macos_capture_error_is_not_misreported_when_permission_is_granted(self):
+        self.backend.desktop_started = False
+        self.gui.screenshot.side_effect = OSError("display unavailable")
+        with patch.object(module.sys, "platform", "darwin"):
+            with patch.object(module, "macos_permissions", return_value={"screen_recording": True, "accessibility": True}, create=True):
+                with self.assertRaisesRegex(OSError, "display unavailable"):
+                    self.backend.desktop({"operation": "start"})
+
 
 class GnomeDesktopStop(unittest.TestCase):
     def backend(self):
