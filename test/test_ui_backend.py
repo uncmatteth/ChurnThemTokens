@@ -191,6 +191,35 @@ class DesktopValidation(unittest.TestCase):
                     self.backend.desktop({"operation": "start"})
 
 
+class DesktopCompanionGui(unittest.TestCase):
+    def test_standalone_opens_with_a_png_icon_on_tk_without_a_png_decoder(self):
+        import sys
+        import tempfile
+        import types
+        import desktop_companion
+        import PIL
+        from PIL import Image
+
+        tkinter = Mock()
+        tkinter.PhotoImage.side_effect = RuntimeError("Tk 8.5 cannot decode PNG files")
+        image_tk = types.ModuleType("PIL.ImageTk")
+        image_tk.PhotoImage = Mock(return_value=object())
+        window = tkinter.Tk.return_value
+        backend = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            icon = Path(directory) / "icon.png"
+            Image.new("RGB", (8, 8), "green").save(icon)
+            with patch.dict(sys.modules, {"tkinter": tkinter, "PIL.ImageTk": image_tk}):
+                with patch.object(desktop_companion, "ICON", icon):
+                    with patch.object(PIL, "ImageTk", image_tk, create=True):
+                        try:
+                            desktop_companion.tk_window(backend)
+                        except RuntimeError as error:
+                            self.fail(f"The standalone window failed before opening: {error}")
+        window.mainloop.assert_called_once_with()
+        backend.desktop.assert_not_called()
+
+
 class GnomeDesktopStop(unittest.TestCase):
     def backend(self):
         from gnome_wayland import GnomeWaylandDesktop

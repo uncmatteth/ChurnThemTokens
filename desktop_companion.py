@@ -110,7 +110,10 @@ def tk_window(backend):
     window.title("AIClickThatShit")
     window.geometry("650x520")
     if ICON.is_file():
-        window.iconphoto(True, tk.PhotoImage(file=str(ICON)))
+        # System Tk 8.5 on macOS cannot decode PNG files itself.
+        with Image.open(ICON) as picture:
+            icon = ImageTk.PhotoImage(picture, master=window)
+        window.iconphoto(True, icon)
     panel = ttk.Frame(window, padding=16)
     panel.pack(fill="both", expand=True)
     ttk.Label(panel, text="Screen, mouse and keyboard control for your own computer", wraplength=600).pack(anchor="w")
