@@ -1,4 +1,4 @@
-"""GNOME Wayland fallback when the public desktop portal has no screen sources.
+"""GNOME Wayland screen and input control, limited to the primary monitor.
 
 The screen and input sessions belong to this process and close together.
 """
@@ -14,6 +14,8 @@ SCREENCAST = "org.gnome.Mutter.ScreenCast"
 SCREENCAST_PATH = "/org/gnome/Mutter/ScreenCast"
 REMOTE = "org.gnome.Mutter.RemoteDesktop"
 REMOTE_PATH = "/org/gnome/Mutter/RemoteDesktop"
+DISPLAY_CONFIG = "org.gnome.Mutter.DisplayConfig"
+DISPLAY_CONFIG_PATH = "/org/gnome/Mutter/DisplayConfig"
 
 
 class GnomeWaylandDesktop:
@@ -28,7 +30,7 @@ class GnomeWaylandDesktop:
         self.Gdk, self.Gio, self.GLib, self.Gst = Gdk, Gio, GLib, Gst
         self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         owners = [self.dbus("GetNameOwner", "(s)", (name,))[0]
-                  for name in (SCREENCAST, REMOTE, "org.gnome.Shell")]
+                  for name in (SCREENCAST, REMOTE, DISPLAY_CONFIG, "org.gnome.Shell")]
         if len(set(owners)) != 1:
             raise ValueError("GNOME screen and input services do not belong to the current desktop")
         self.owner = owners[0]
@@ -41,6 +43,7 @@ class GnomeWaylandDesktop:
         self.screen_session = None
         self.stream = None
         self.stream_size = None
+        self.monitor_bounds = None
         self.pipeline = None
         self.sink = None
         self.subscriptions = []
@@ -58,7 +61,7 @@ class GnomeWaylandDesktop:
     def owner_is_current(self):
         try:
             return all(self.dbus("GetNameOwner", "(s)", (name,))[0] == self.owner
-                       for name in (SCREENCAST, REMOTE, "org.gnome.Shell"))
+                       for name in (SCREENCAST, REMOTE, DISPLAY_CONFIG, "org.gnome.Shell"))
         except Exception:
             return False
 
@@ -70,15 +73,28 @@ class GnomeWaylandDesktop:
         display = self.Gdk.Display.get_default()
         if display is None or display.get_n_monitors() == 0:
             raise ValueError("No visible GNOME monitor")
-        rectangles = [display.get_monitor(index).get_geometry()
-                      for index in range(display.get_n_monitors())]
-        left = min(rect.x for rect in rectangles)
-        top = min(rect.y for rect in rectangles)
-        right = max(rect.x + rect.width for rect in rectangles)
-        bottom = max(rect.y + rect.height for rect in rectangles)
-        if right <= left or bottom <= top:
-            raise ValueError("Invalid GNOME monitor layout")
-        return left, top, right - left, bottom - top
+        monitor = display.get_primary_monitor()
+        if monitor is None and display.get_n_monitors() == 1:
+            monitor = display.get_monitor(0)
+        if monitor is None:
+            # Gdk's Wayland backend does not expose the primary-monitor flag.
+            # Match the compositor's primary logical monitor to Gdk geometry.
+            logical = unpack(self.call(DISPLAY_CONFIG, DISPLAY_CONFIG_PATH,
+                                       DISPLAY_CONFIG, "GetCurrentState"))[2]
+            positions = [(item[0], item[1]) for item in logical if item[4]]
+            if len(positions) == 1:
+                for index in range(display.get_n_monitors()):
+                    candidate = display.get_monitor(index)
+                    geometry = candidate.get_geometry()
+                    if (geometry.x, geometry.y) == positions[0]:
+                        monitor = candidate
+                        break
+        if monitor is None:
+            raise ValueError("Select a primary monitor in GNOME display settings before starting desktop control")
+        rectangle = monitor.get_geometry()
+        if rectangle.width <= 0 or rectangle.height <= 0:
+            raise ValueError("Invalid GNOME primary monitor geometry")
+        return rectangle.x, rectangle.y, rectangle.width, rectangle.height
 
     def on_remote_closed(self, *_args):
         self.remote_closed = True
@@ -97,6 +113,7 @@ class GnomeWaylandDesktop:
         V = self.GLib.Variant
         try:
             left, top, width, height = self.bounds()
+            self.monitor_bounds = (left, top, width, height)
             self.stream_size = (width, height)
             self.remote_session = self.call(REMOTE, REMOTE_PATH, REMOTE, "CreateSession")[0]
             session_id = unpack(self.call(
@@ -155,14 +172,22 @@ class GnomeWaylandDesktop:
         self.refresh_closed()
         if self.closed or not self.remote_session or not self.sink or not self.owner_is_current():
             raise ValueError("Desktop sharing is stopped. Call desktop start")
+        try:
+            unchanged = self.bounds() == self.monitor_bounds
+        except Exception:
+            unchanged = False
+        if not unchanged:
+            self.stop()
+            raise ValueError("The primary monitor changed; desktop control stopped. Call desktop start again")
 
     def status(self):
         self.refresh_closed()
         if not self.remote_session or not self.sink or self.closed or not self.owner_is_current():
             return {"active": False, "wayland": True}
+        self.require_active()
         return {"active": True, "wayland": True, "width": self.stream_size[0],
-                "height": self.stream_size[1], "primary_display_only": False,
-                "selected_monitor_only": False, "backend": "gnome"}
+                "height": self.stream_size[1], "primary_display_only": True,
+                "selected_monitor_only": True, "backend": "gnome"}
 
     def screenshot(self):
         self.require_active()
@@ -262,4 +287,5 @@ class GnomeWaylandDesktop:
             self.bus.signal_unsubscribe(subscription)
         self.subscriptions = []
         self.remote_session = self.screen_session = self.stream = None
+        self.monitor_bounds = None
         self.closed = self.remote_closed = self.screen_closed = False

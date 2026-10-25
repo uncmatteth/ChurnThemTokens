@@ -315,15 +315,20 @@ class Backend:
 
     def wayland_desktop(self, a):
         if self.portal is None:
-            from wayland_portal import WaylandPortal, CAST, unpack
-            portal = WaylandPortal(parent_window=self.parent_window, approval_timeout=self.approval_timeout)
-            sources = int(unpack(portal.call("org.freedesktop.DBus.Properties", "Get",
-                                             "(ss)", (CAST, "AvailableSourceTypes")))[0])
-            cursor_modes = int(unpack(portal.call("org.freedesktop.DBus.Properties", "Get",
-                                                  "(ss)", (CAST, "AvailableCursorModes")))[0])
-            if (sources & 1) == 0 or cursor_modes == 0:
+            desktops = os.environ.get("XDG_CURRENT_DESKTOP", "").lower().split(":")
+            if "gnome" in desktops:
                 from gnome_wayland import GnomeWaylandDesktop
                 portal = GnomeWaylandDesktop()
+            else:
+                from wayland_portal import WaylandPortal, CAST, unpack
+                portal = WaylandPortal(parent_window=self.parent_window, approval_timeout=self.approval_timeout)
+                sources = int(unpack(portal.call("org.freedesktop.DBus.Properties", "Get",
+                                                 "(ss)", (CAST, "AvailableSourceTypes")))[0])
+                cursor_modes = int(unpack(portal.call("org.freedesktop.DBus.Properties", "Get",
+                                                      "(ss)", (CAST, "AvailableCursorModes")))[0])
+                if (sources & 1) == 0 or cursor_modes == 0:
+                    from gnome_wayland import GnomeWaylandDesktop
+                    portal = GnomeWaylandDesktop()
             self.portal = portal
         portal = self.portal
         op = a["operation"]

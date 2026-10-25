@@ -20,9 +20,9 @@ files may contain project data. The helper does not automatically purge this
 local state. You control which project folders and tool permissions it gets.
 Shell commands run as your OS user and can reach beyond the approved folders.
 If desktop control is enabled, macOS, Windows, and supported Linux portals may
-ask which screen and input devices to share. On GNOME Wayland when the public
-portal has no screen sources, AIClickThatShit uses the local GNOME session
-directly: it captures all monitors and controls the mouse and keyboard without
+ask which screen and input devices to share. On GNOME Wayland,
+AIClickThatShit uses the local GNOME session directly: it captures only the
+primary monitor and controls the mouse and keyboard without
 an additional OS sharing dialog. Enabling desktop access locally and connecting
 the selected chat authorizes this scope. The local screen session ends when you stop sharing or disconnect;
 the selected screenshots sent into your chat remain in that conversation.

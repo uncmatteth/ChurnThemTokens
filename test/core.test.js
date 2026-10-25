@@ -6,12 +6,18 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { DirectBridge, hash, jsonWrite, LIMIT } = require('../core');
+const { DirectBridge, hash, jsonWrite, cleanEnv, LIMIT } = require('../core');
 const { fixture, finish, initGit } = require('./helpers');
 test('identity declares direct tools without a model provider', async t => {
   const { call } = fixture(t); const status = await call('bridge_status', {});
   assert.equal(status.invokes_codex, false); assert.equal(status.makes_model_api_calls, false); assert.equal(status.model_provider, null);
   assert.ok(status.instance_id); assert.ok((await call('project_list', {}))[0].root);
+});
+test('the GUI helper keeps the current desktop identity', () => {
+  const previous = process.env.XDG_CURRENT_DESKTOP;
+  process.env.XDG_CURRENT_DESKTOP = 'ubuntu:GNOME';
+  try { assert.equal(cleanEnv().XDG_CURRENT_DESKTOP, 'ubuntu:GNOME'); }
+  finally { if (previous === undefined) delete process.env.XDG_CURRENT_DESKTOP; else process.env.XDG_CURRENT_DESKTOP = previous; }
 });
 test('new writes, read hashes and stale-write prevention', async t => {
   const { call } = fixture(t);

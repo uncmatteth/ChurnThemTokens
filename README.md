@@ -95,10 +95,11 @@ access enabled, the extension shows these controls:
 On Wayland portals supporting permission restoration, AIClickThatShit requests
 permission until explicitly revoked and saves the desktop's returned grant
 privately. Reopening restores that grant; an already active session is reused.
-If a GNOME Wayland session's public portal reports no screen sources,
-AIClickThatShit uses GNOME's screen and input session instead. In that case,
-`--allow-desktop` authorizes capture of all monitors and mouse/keyboard input
-without an additional OS sharing dialog. The standalone app waits for its
+On GNOME Wayland, AIClickThatShit uses GNOME's own screen and input session.
+`--allow-desktop` authorizes capture of the primary monitor and mouse/keyboard
+input without an additional OS sharing dialog. It does not capture the other
+monitors. If the primary monitor changes while sharing, control stops until
+started again. The standalone app waits for its
 Turn on button before starting desktop access.
 The standalone Linux app keeps its initial sharing request open until you
 complete it or stop control; it does not discard setup after a short timeout.

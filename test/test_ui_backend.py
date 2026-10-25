@@ -77,11 +77,37 @@ class DesktopValidation(unittest.TestCase):
         portal.call.return_value = (0,)
         fallback = Mock()
         fallback.start.return_value = {"active": True, "backend": "gnome"}
-        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0", "XDG_CURRENT_DESKTOP": "ubuntu:GNOME"}):
+        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
             with patch.object(wayland_portal, "WaylandPortal", return_value=portal):
                 with patch.object(gnome_wayland, "GnomeWaylandDesktop", return_value=fallback):
                     self.assertEqual(self.backend.desktop({"operation": "start"})["backend"], "gnome")
         self.assertIs(self.backend.portal, fallback)
+
+    def test_gnome_start_uses_its_owned_session_without_waiting_for_a_portal(self):
+        import gnome_wayland
+        import wayland_portal
+        native = Mock()
+        native.start.return_value = {"active": True, "backend": "gnome", "selected_monitor_only": True}
+        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0", "XDG_CURRENT_DESKTOP": "ubuntu:GNOME"}):
+            with patch.object(wayland_portal, "WaylandPortal") as portal:
+                portal.return_value.call.return_value = (7,)
+                with patch.object(gnome_wayland, "GnomeWaylandDesktop", return_value=native):
+                    self.assertTrue(self.backend.desktop({"operation": "start"})["selected_monitor_only"])
+        portal.assert_not_called()
+        self.assertIs(self.backend.portal, native)
+
+    def test_other_wayland_desktops_keep_their_monitor_permission_portal(self):
+        import gnome_wayland
+        import wayland_portal
+        portal = Mock()
+        portal.call.return_value = (7,)
+        portal.start.return_value = {"active": True, "wayland": True}
+        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0", "XDG_CURRENT_DESKTOP": "KDE"}):
+            with patch.object(wayland_portal, "WaylandPortal", return_value=portal):
+                with patch.object(gnome_wayland, "GnomeWaylandDesktop") as native:
+                    self.assertTrue(self.backend.desktop({"operation": "start"})["active"])
+        self.assertIs(self.backend.portal, portal)
+        native.assert_not_called()
     def test_wayland_start_click_and_stop_use_owned_portal(self):
         self.backend.portal = Mock()
         self.backend.portal.start.return_value = {"active": True, "wayland": True}
@@ -256,6 +282,67 @@ class GnomeDesktopStop(unittest.TestCase):
         self.assertEqual(backend.remote_session, "/remote")
         self.assertEqual(backend.screen_session, "/screen")
         backend.bus.signal_unsubscribe.assert_not_called()
+
+
+class GnomeMonitorScope(unittest.TestCase):
+    def backend(self):
+        from gnome_wayland import GnomeWaylandDesktop
+        backend = GnomeWaylandDesktop.__new__(GnomeWaylandDesktop)
+        backend.Gdk = Mock()
+        display = backend.Gdk.Display.get_default.return_value
+        display.get_n_monitors.return_value = 2
+        primary = Mock()
+        rectangle = primary.get_geometry.return_value
+        rectangle.x, rectangle.y, rectangle.width, rectangle.height = -1920, 0, 1920, 1080
+        display.get_primary_monitor.return_value = primary
+        other = Mock()
+        rectangle = other.get_geometry.return_value
+        rectangle.x, rectangle.y, rectangle.width, rectangle.height = 0, 0, 2560, 1440
+        display.get_monitor.side_effect = [primary, other]
+        backend.call = Mock(return_value=(1, [], []))
+        return backend, display
+
+    def test_capture_is_limited_to_primary_monitor_with_a_second_monitor_attached(self):
+        backend, _display = self.backend()
+        self.assertEqual(backend.bounds(), (-1920, 0, 1920, 1080))
+
+    def test_ambiguous_monitor_selection_does_not_capture_the_entire_desktop(self):
+        backend, display = self.backend()
+        display.get_primary_monitor.return_value = None
+        with self.assertRaisesRegex(ValueError, "primary monitor"):
+            backend.bounds()
+
+    def test_wayland_without_gdk_primary_uses_the_compositors_primary_monitor(self):
+        backend, display = self.backend()
+        display.get_primary_monitor.return_value = None
+        backend.call.return_value = (1, [], [(-1920, 0, 1.0, 0, True, [], {}),
+                                             (0, 0, 1.0, 0, False, [], {})])
+        self.assertEqual(backend.bounds(), (-1920, 0, 1920, 1080))
+
+    def test_a_monitor_change_stops_control_before_sending_a_pointer_event(self):
+        backend, _display = self.backend()
+        backend.monitor_bounds = (0, 0, 1920, 1080)
+        backend.remote_session, backend.sink, backend.closed = "/remote", object(), False
+        backend.refresh_closed = Mock()
+        backend.owner_is_current = Mock(return_value=True)
+        backend.stop, backend.call = Mock(), Mock()
+        with self.assertRaisesRegex(ValueError, "monitor changed"):
+            backend.move(10, 10)
+        backend.stop.assert_called_once_with()
+        backend.call.assert_not_called()
+
+    def test_status_and_repeated_start_do_not_report_a_changed_monitor_as_ready(self):
+        for operation in ("status", "start"):
+            with self.subTest(operation=operation):
+                backend, _display = self.backend()
+                backend.monitor_bounds = (0, 0, 1920, 1080)
+                backend.remote_session, backend.sink, backend.closed = "/remote", object(), False
+                backend.refresh_closed = Mock()
+                backend.owner_is_current = Mock(return_value=True)
+                backend.stop = Mock()
+                with self.assertRaisesRegex(ValueError, "monitor changed"):
+                    getattr(backend, operation)()
+                backend.stop.assert_called_once_with()
 
 
 @unittest.skipUnless(os.environ.get("BRIDGEBRAIN_UI_TESTS") == "1", "Optional real Chromium test")

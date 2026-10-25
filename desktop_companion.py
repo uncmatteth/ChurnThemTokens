@@ -35,7 +35,7 @@ def gtk_window(backend):
     panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     panel.set_border_width(16)
     window.add(panel)
-    scope = Gtk.Label(label="Screen, mouse and keyboard control for your own computer. On GNOME without a sharing dialog, turning this on shares all monitors.", xalign=0)
+    scope = Gtk.Label(label="Screen, mouse and keyboard control for your own computer. On GNOME Wayland, turning this on shares only your primary monitor and enables mouse and keyboard control.", xalign=0)
     scope.set_line_wrap(True)
     panel.pack_start(scope, False, False, 0)
     byline = Gtk.Label(xalign=0)
