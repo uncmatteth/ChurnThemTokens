@@ -150,9 +150,9 @@ Linux uses system GI, GStreamer/PipeWire and Pillow on Wayland, or PyAutoGUI on
 X11. macOS and Windows use PyAutoGUI and Pillow and may require screen/input
 permissions. Packaged builds must be built on the target operating system.
 
-On macOS, Turn on requests Screen Recording through the operating system when
-capture fails because the grant is missing. If macOS requires a change in
-System Settings, the app names the setting. `--doctor` reads Screen Recording
+On macOS, Turn on requests missing Accessibility and Screen Recording grants
+through the operating system. If macOS requires a change in System Settings,
+the app names the setting. `--doctor` reads Screen Recording
 and Accessibility for the calling process without prompting; an SSH result does
 not establish a separately launched app's grant.
 

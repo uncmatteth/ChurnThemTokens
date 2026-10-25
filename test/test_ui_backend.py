@@ -109,11 +109,13 @@ class DesktopValidation(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stopped"):
             self.backend.desktop({"operation": "click", "x": 10, "y": 20})
         self.gui.screenshot.side_effect = RuntimeError("no frame")
-        with self.assertRaises(RuntimeError):
-            self.backend.desktop({"operation": "start"})
+        with patch.object(module, "macos_permissions", return_value={"screen_recording": True, "accessibility": True}):
+            with self.assertRaises(RuntimeError):
+                self.backend.desktop({"operation": "start"})
         self.assertFalse(self.backend.desktop({"operation": "status"})["active"])
         self.gui.screenshot.side_effect = None
-        self.assertTrue(self.backend.desktop({"operation": "start"})["active"])
+        with patch.object(module, "macos_permissions", return_value={"screen_recording": True, "accessibility": True}):
+            self.assertTrue(self.backend.desktop({"operation": "start"})["active"])
 
     def test_macos_doctor_reports_nonprompting_privacy_state(self):
         permissions = {"screen_recording": False, "accessibility": True}
@@ -168,6 +170,17 @@ class DesktopValidation(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "Screen Recording"):
                         self.backend.desktop({"operation": "screenshot"})
                     request.assert_not_called()
+
+    def test_macos_screen_permission_alone_does_not_claim_input_is_ready(self):
+        self.backend.desktop_started = False
+        with patch.object(module.sys, "platform", "darwin"):
+            with patch.object(module, "macos_permissions", return_value={"screen_recording": True, "accessibility": False}):
+                with patch.object(module, "request_macos_accessibility", return_value=False, create=True) as request:
+                    with self.assertRaisesRegex(ValueError, "Accessibility"):
+                        self.backend.desktop({"operation": "start"})
+                    request.assert_called_once_with()
+        self.assertFalse(self.backend.desktop_started)
+        self.gui.click.assert_not_called()
 
     def test_macos_capture_error_is_not_misreported_when_permission_is_granted(self):
         self.backend.desktop_started = False

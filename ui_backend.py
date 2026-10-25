@@ -59,6 +59,33 @@ def request_macos_screen_recording():
         return False
 
 
+def request_macos_accessibility():
+    """Ask the system to show Accessibility consent, using Apple's public API."""
+    import ctypes
+    try:
+        services = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        core = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        pointers = ctypes.POINTER(ctypes.c_void_p)
+        core.CFDictionaryCreate.argtypes = [ctypes.c_void_p, pointers, pointers, ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p]
+        core.CFDictionaryCreate.restype = ctypes.c_void_p
+        keys = (ctypes.c_void_p * 1)(ctypes.c_void_p.in_dll(services, "kAXTrustedCheckOptionPrompt").value)
+        values = (ctypes.c_void_p * 1)(ctypes.c_void_p.in_dll(core, "kCFBooleanTrue").value)
+        options = core.CFDictionaryCreate(None, keys, values, 1, None, None)
+        if not options:
+            return False
+        core.CFRelease.argtypes = [ctypes.c_void_p]
+        core.CFRelease.restype = None
+        try:
+            request = services.AXIsProcessTrustedWithOptions
+            request.argtypes = [ctypes.c_void_p]
+            request.restype = ctypes.c_bool
+            return bool(request(options))
+        finally:
+            core.CFRelease(options)
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
 def capture_screen(gui, request_permission=False):
     try:
         return gui.screenshot()
@@ -236,8 +263,12 @@ class Backend:
             self.gui.FAILSAFE = True
         gui = self.gui
         if op == "start":
+            if sys.platform == "darwin" and macos_permissions()["accessibility"] is False:
+                request_macos_accessibility()
             # A real frame is required before the extension labels this ready.
             capture_screen(gui, request_permission=True)
+            if sys.platform == "darwin" and macos_permissions()["accessibility"] is False:
+                raise ValueError("macOS Accessibility is not allowed for this app. Enable the requesting app in System Settings > Privacy & Security > Accessibility, then quit and reopen it and try again.")
             self.desktop_started = True
             op = "status"
         width, height = gui.size()
