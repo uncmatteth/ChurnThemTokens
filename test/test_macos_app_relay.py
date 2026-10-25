@@ -1,4 +1,5 @@
 """Real private FIFO transport and managed-process tests; no host desktop calls."""
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -45,7 +46,18 @@ class Application:
         return URL(self.app)
 
     def executableURL(self):
-        return URL(self.app / "Contents" / "MacOS" / "Desktop")
+        if sys.platform == "darwin":
+            # Framework Python can re-exec the Desktop symlink while keeping
+            # sys.executable unchanged. Mirror NSWorkspace's actual image path.
+            library = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            function = library.proc_pidpath
+            function.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            function.restype = ctypes.c_int
+            buffer = ctypes.create_string_buffer(4096)
+            if function(self.pid, buffer, len(buffer)) <= 0:
+                raise OSError(ctypes.get_errno(), "Synthetic process executable path unavailable")
+            return URL(os.fsdecode(buffer.value))
+        return URL(self.app.resolve() / "Contents" / "MacOS" / "Desktop")
 
     def isTerminated(self):
         return not alive(self.pid)
@@ -77,6 +89,8 @@ def fixture_relay(app, record, behavior, existing):
     app_args = [str(THIS), "--payload", record, behavior, "--stdio", "--state", str(Path(record).parent / "private state")]
     if behavior == "doctor":
         app_args = app_args[:-3] + ["--doctor"]
+    elif behavior.startswith("setup"):
+        app_args = app_args[:-3] + ["--setup"]
     elif behavior == "no-state-probe":
         app_args = app_args[:-2]
     return relay(app, app_args, workspace=Workspace(record, app, existing),
@@ -106,6 +120,15 @@ def payload(record, behavior):
     if behavior == "doctor":
         os.write(1, b'{"app_context":true,"prompting":false}\n')
         return 0
+    if behavior == "setup":
+        state = Path(sys.argv[sys.argv.index("--state") + 1])
+        ready = bool(select.select([0], [], [], 0.05)[0])
+        os.write(1, json.dumps({"setup": True, "stdin_ready": ready, "private_state": state.is_dir() and not state.is_symlink()}).encode() + b"\n")
+        return 0
+    if behavior == "setup-wait":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        while True:
+            time.sleep(0.01)
     if behavior.endswith("state-probe"):
         state = Path(sys.argv[sys.argv.index("--state") + 1])
         (state / "app-write").write_text("same physical state")
@@ -192,6 +215,40 @@ class MacAppRelay(unittest.TestCase):
         self.assertEqual(child.returncode, 0, errors.decode())
         self.assertEqual(json.loads(output), {"app_context": True, "prompting": False})
 
+    def test_setup_uses_private_state_and_does_not_forward_parent_stdin(self):
+        child = self.start("setup")
+        output, errors = child.communicate(b"must not reach setup app\n", timeout=3)
+        self.assertEqual(child.returncode, 0, errors.decode())
+        self.assertEqual(json.loads(output), {"setup": True, "stdin_ready": False, "private_state": True})
+        self.assertFalse(any(alive(pid) for pid in self.pids()))
+
+    def test_setup_cancellation_stops_only_its_owned_app(self):
+        child = self.start("setup-wait")
+        self.wait_pids(1)
+        child.terminate()
+        output, errors = child.communicate(timeout=2)
+        self.assertEqual(child.returncode, 0, errors.decode())
+        self.assertEqual(output, b"")
+        self.assertFalse(any(alive(pid) for pid in self.pids()))
+
+    def test_setup_mode_is_mutually_exclusive(self):
+        from macos_app_relay import relay
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            relay(str(self.app), ["--doctor", "--setup"])
+
+    def test_workspace_reports_the_synthetic_process_actual_executable(self):
+        child = self.start("state-probe")
+        self.wait_pids(1)
+        pid = self.pids()[0]
+        actual = subprocess.run(["/bin/ps", "-ww", "-p", str(pid), "-o", "command="],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        executable = Application(pid, self.app).executableURL().path()
+        prefix, separator, _ = actual.partition(" " + str(THIS) + " --payload ")
+        self.assertTrue(separator, "synthetic payload arguments were not preserved")
+        self.assertEqual(executable, prefix, "fake workspace differs from the process's actual executable")
+        _, errors = child.communicate(timeout=3)
+        self.assertEqual(child.returncode, 0, errors.decode())
+
     def test_cancellation_reaps_both_owned_processes_and_preserves_existing_gui(self):
         gui = [subprocess.Popen([str(self.app / "Contents" / "MacOS" / "Desktop"), "-c", "import time; time.sleep(30)"], start_new_session=True) for _ in range(2)]
         self.existing = [process.pid for process in gui]
@@ -250,7 +307,7 @@ class MacAppRelay(unittest.TestCase):
         result = json.loads(output)
         self.assertTrue(result["symlink"])
         self.assertNotEqual(result["state"], str(self.state))
-        self.assertEqual(result["physical"], str(self.state))
+        self.assertEqual(result["physical"], str(self.state.resolve()))
         self.assertEqual((self.state / "app-write").read_text(), "same physical state")
         self.assertEqual(json.loads(Path(str(self.record) + ".teardown").read_text()), {"state_exists": True})
         self.assertFalse(Path(result["state"]).exists())

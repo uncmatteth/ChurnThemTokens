@@ -24,6 +24,7 @@
     "native.js",
     "install.js",
     "scripts/check-private-windows-acl.ps1",
+    "scripts/build-macos.py",
     "scripts/package-guard.js",
     "skills/churn-them-tokens/",
     "browser-relay/",

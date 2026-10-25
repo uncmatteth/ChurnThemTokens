@@ -5,7 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawn, spawnSync } = require('node:child_process');
 const { defaultConfig } = require('./cli');
-const { jsonRead } = require('./core');
+const { jsonRead, cleanEnv, desktopCompanionCommand } = require('./core');
 const { frame } = require('./native');
 const native = require('./browser-relay/setup');
 
@@ -100,6 +100,90 @@ function handshake(plan) {
     child.stdin.write(Buffer.concat([1, 2].map((id, i) => frame({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: i ? 'project_list' : 'bridge_status', arguments: {} } }))));
   });
 }
+function runPrivateCommand(selected, args, { timeout = 10000, signal, captureStderr = false } = {}) {
+  if (signal?.aborted) return Promise.resolve({ code: null, stdout: '', stderr: '', cancelled: true });
+  return new Promise(resolve => {
+    const child = spawn(selected.command, [...(selected.args || []), ...args], { env: cleanEnv({ PYTHONDONTWRITEBYTECODE: '1' }), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+    const output = [], errors = []; let bytes = 0, failure = null, force, timer;
+    const stop = reason => {
+      if (failure) return;
+      failure = reason;
+      const kill = force => {
+        if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+        try { process.platform === 'win32' ? child.kill(force ? 'SIGKILL' : 'SIGTERM') : process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); } catch {}
+      };
+      kill(false);
+      force = setTimeout(() => kill(true), 1500);
+    };
+    const abort = () => stop('cancelled');
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    if (timeout !== null) timer = setTimeout(() => stop('timed_out'), timeout);
+    const collect = (pieces, data) => {
+      bytes += data.length;
+      if (bytes > 65536) { stop('output_limit'); return; }
+      if (!failure) pieces.push(data);
+    };
+    child.stdout.on('data', data => collect(output, data));
+    child.stderr.on('data', data => { if (captureStderr) collect(errors, data); });
+    child.on('error', () => { failure = 'start_failed'; });
+    child.on('close', code => {
+      clearTimeout(timer); clearTimeout(force); signal?.removeEventListener('abort', abort);
+      resolve({ code, stdout: failure ? '' : Buffer.concat(output).toString('utf8'), stderr: failure ? '' : Buffer.concat(errors).toString('utf8'), failure, cancelled: failure === 'cancelled' });
+    });
+  });
+}
+async function macDesktopSetup(settings, { home, dryRun, codesign = { command: '/usr/bin/codesign', args: [] }, signal }) {
+  const app = path.join(home, 'Applications', 'ChurnThemTokensDesktop.app');
+  const result = { status: 'app_missing', ready: false, required: true, app_present: fs.existsSync(app), identity: 'unverified', macos_permissions: { screen_recording: null, accessibility: null }, setup_launched: false, setup_exit_code: null, frame_verified: false, live_input_verified: false };
+  if (dryRun) return { ...result, status: 'planned_not_checked' };
+  if (signal?.aborted) return { ...result, status: 'setup_cancelled' };
+  if (!result.app_present) return result;
+  const verified = await runPrivateCommand(codesign, ['--verify', '--strict', app], { signal });
+  if (verified.cancelled) return { ...result, status: 'setup_cancelled' };
+  if (verified.code !== 0 || verified.failure) return { ...result, status: 'signing_identity_required' };
+  const signature = await runPrivateCommand(codesign, ['--display', '--verbose=4', '-r-', app], { signal, captureStderr: true });
+  if (signature.cancelled) return { ...result, status: 'setup_cancelled' };
+  const metadata = signature.stdout + '\n' + signature.stderr;
+  const expectedIdentifier = 'ChurnThemTokensDesktop';
+  const identifier = metadata.match(/^Identifier=(.+)$/m)?.[1].trim();
+  const team = metadata.match(/^TeamIdentifier=(.+)$/m)?.[1].trim();
+  const requirement = metadata.match(/^(?:#[ \t]*)?designated[ \t]*=>[ \t]*(.+)$/m)?.[1] || '';
+  const requiredIdentifier = requirement.match(/\bidentifier\s+"([^"]+)"/)?.[1];
+  const requiredTeam = requirement.match(/\bcertificate\s+leaf\s*\[\s*subject\.OU\s*\]\s*=\s*"([^"]+)"/)?.[1];
+  if (/^Signature=adhoc\s*$/m.test(metadata) || /\bcdhash\b/i.test(requirement)) result.identity = 'ad_hoc';
+  else if (signature.code === 0 && !signature.failure && identifier === expectedIdentifier && requiredIdentifier === expectedIdentifier && team && team !== 'not set' && requiredTeam === team && /^Authority=.+$/m.test(metadata) && /\banchor apple(?: generic)?\b/.test(requirement)) result.identity = 'certificate_backed';
+  if (result.identity !== 'certificate_backed') return { ...result, status: 'signing_identity_required' };
+  const selected = desktopCompanionCommand(settings, 'darwin', home);
+  // An app disappearing after signature inspection must not select loose Python.
+  if (selected.args[selected.args.indexOf('--app') + 1] !== app) return { ...result, status: 'app_missing', app_present: false };
+  const run = mode => runPrivateCommand(selected, [mode, '--state', settings.stateDir], { timeout: mode === '--setup' ? null : 10000, signal });
+  const parse = response => { try { return response.failure ? null : JSON.parse(response.stdout); } catch { return null; } };
+  const inspect = response => {
+    const permissions = response.code === 0 ? parse(response)?.macos_permissions : null;
+    result.macos_permissions = Object.fromEntries(['screen_recording', 'accessibility'].map(name => [name, typeof permissions?.[name] === 'boolean' ? permissions[name] : null]));
+    result.ready = Object.values(result.macos_permissions).every(value => value === true);
+  };
+  const first = await run('--doctor');
+  if (first.cancelled) return { ...result, status: 'setup_cancelled' };
+  inspect(first);
+  let receipt = null;
+  if (!result.ready) {
+    result.setup_launched = true;
+    const setup = await run('--setup');
+    result.setup_exit_code = setup.code;
+    if (setup.cancelled) return { ...result, status: 'setup_cancelled' };
+    receipt = parse(setup);
+    // OS quit/reopen can make setup exit nonzero. Always check a fresh app.
+    const fresh = await run('--doctor');
+    if (fresh.cancelled) return { ...result, ready: false, status: 'setup_cancelled' };
+    inspect(fresh);
+    result.frame_verified = setup.code === 0 && result.ready && receipt?.frame_verified === true;
+  }
+  result.required = !result.ready;
+  result.status = result.ready ? 'permissions_ready_live_check_required' : receipt?.cancelled === true ? 'setup_cancelled' : 'permissions_required';
+  return result;
+}
 async function install(options, environment = {}) {
   const platform = environment.platform || process.platform, home = environment.home || os.homedir();
   if (!['linux', 'darwin', 'win32'].includes(platform)) throw new Error('Automated native-host setup supports Linux, macOS and Windows Chrome. No settings were changed.');
@@ -114,14 +198,21 @@ async function install(options, environment = {}) {
   native.install(plan, true); // Preflight all registrations before creating config.
   let proof = null;
   if (!options.dryRun) {
-    if (!existing) runInit(initArgs(options, config));
+    if (!existing) {
+      const args = initArgs(options, config);
+      if (platform === 'darwin' && options.permissions.desktop) args.push('--python', desktopCompanionCommand({}, platform, home).command);
+      runInit(args);
+    }
     native.install(native.plan({ config, home, platform, profileDirectory: options.profileDirectory }), false);
     proof = await handshake(plan);
   }
+  const desktop = platform === 'darwin' && options.permissions.desktop
+    ? await macDesktopSetup(options.dryRun ? settings : jsonRead(config), { home, dryRun: !!options.dryRun, codesign: environment.codesign, signal: environment.signal }) : null;
   return {
     product: 'ChurnThemTokens', dry_run: !!options.dryRun, config,
-    status: options.dryRun ? 'planned_no_changes' : 'local_helper_ready_browser_connection_unverified',
-    desktop_scope: options.permissions.desktop ? 'Screen, mouse and keyboard control. GNOME Wayland shares only the primary monitor through its local screen and input session, without an additional OS sharing dialog.' : 'off',
+    status: options.dryRun ? 'planned_no_changes' : desktop?.required ? 'local_helper_ready_desktop_setup_required_browser_connection_unverified' : 'local_helper_ready_browser_connection_unverified',
+    ...(desktop ? { desktop_setup: desktop } : {}),
+    desktop_scope: options.permissions.desktop ? platform === 'darwin' ? 'Screen, mouse and keyboard control through the installed macOS app.' : 'Screen, mouse and keyboard control. GNOME Wayland shares only the primary monitor through its local screen and input session, without an additional OS sharing dialog.' : 'off',
     native_handshake: proof, extension_id: plan.extension_id, extension_directory: plan.extension_directory,
     browser_steps: [
       { action: 'install_from_chrome_web_store', url: `https://chromewebstore.google.com/detail/${plan.extension_id}`, extension_id: plan.extension_id, instruction: 'Open the store listing in the intended existing Chrome profile and choose Add to Chrome.' },
@@ -131,5 +222,16 @@ async function install(options, environment = {}) {
     agent_instruction: 'Own these browser steps with supported browser tools. Ask the person only for a specific unavoidable local consent. Do not call the connection verified until the live round trip succeeds.',
   };
 }
-if (require.main === module) install(optionsFor(process.argv.slice(2))).then(result => console.log(JSON.stringify(result, null, 2))).catch(error => { console.error(error.message); process.exitCode = 1; });
-module.exports = { install, optionsFor, handshake, sameSettings };
+if (require.main === module) {
+  const environment = {}; let cleanup = () => {};
+  if (process.platform === 'darwin') {
+    const controller = new AbortController();
+    const stop = signal => { process.exitCode = signal === 'SIGINT' ? 130 : 143; controller.abort(); };
+    const interrupt = () => stop('SIGINT'), terminate = () => stop('SIGTERM');
+    process.on('SIGINT', interrupt); process.on('SIGTERM', terminate);
+    environment.signal = controller.signal;
+    cleanup = () => { process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', terminate); };
+  }
+  install(optionsFor(process.argv.slice(2)), environment).then(result => console.log(JSON.stringify(result, null, 2))).catch(error => { console.error(error.message); process.exitCode = 1; }).finally(cleanup);
+}
+module.exports = { install, optionsFor, handshake, sameSettings, runPrivateCommand };

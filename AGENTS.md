@@ -63,3 +63,11 @@ Run `npm run check` and `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover
 `BRIDGEBRAIN_RELAY_CHROME=/path/to/google-chrome npm run check`; distinguish
 fixtures from live ChatGPT. Run `npm run package:guard` before publication.
 Preserve the MIT attribution. Do not push/deploy unless the user requests it.
+
+For macOS desktop installation, build with `scripts/build-macos.py` and an existing
+Apple-issued signing identity. Preserve that identity and bundle identifier across
+updates; never replace a permission-bearing app with an ad hoc build. Run the
+installer's app-context permission setup and fresh-process check during installation.
+A native handshake alone leaves desktop setup unfinished. Repeated installation of
+an already permitted app must not request its grants again. Keep live Pro input
+acceptance separate from permission setup.

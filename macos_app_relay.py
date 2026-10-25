@@ -30,7 +30,7 @@ def snapshot(workspace):
 
 
 def owned_apps(workspace, before, bundle, arguments):
-    """Require a new same-user app instance and its exact stdio/doctor argv."""
+    """Require a new same-user app instance and its exact transport-mode argv."""
     candidates = {}
     for pid, app in snapshot(workspace).items():
         if pid not in before and app.bundleURL() and not app.isTerminated() and Path(str(app.bundleURL().path())).resolve() == bundle:
@@ -106,7 +106,7 @@ def launch_arguments(arguments, directory):
 
 def relay(app, arguments, workspace=None, open_command=None):
     """Forward protocol bytes without decoding, storing, or logging their content."""
-    if ("--stdio" in arguments) == ("--doctor" in arguments):
+    if sum(arguments.count(mode) for mode in ("--stdio", "--doctor", "--setup")) != 1:
         raise ValueError("Select exactly one companion transport mode")
     bundle = Path(app).resolve()
     workspace = workspace if workspace is not None else mac_workspace()
@@ -205,10 +205,11 @@ def main():
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--stdio", action="store_true")
     modes.add_argument("--doctor", action="store_true")
+    modes.add_argument("--setup", action="store_true")
     parser.add_argument("--state")
     parser.add_argument("--chromium-executable")
     options = parser.parse_args()
-    arguments = ["--doctor" if options.doctor else "--stdio"]
+    arguments = ["--setup" if options.setup else "--doctor" if options.doctor else "--stdio"]
     for name in ("state", "chromium_executable"):
         if getattr(options, name) is not None:
             arguments.extend(["--" + name.replace("_", "-"), getattr(options, name)])

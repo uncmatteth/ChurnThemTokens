@@ -17,7 +17,102 @@ from pathlib import Path
 
 ICON = Path(__file__).resolve().parent / "browser-relay" / "bob128.png"
 
-from ui_backend import Backend, doctor, serve
+from ui_backend import (Backend, doctor, serve, macos_permissions,
+                        request_macos_accessibility, request_macos_screen_recording)
+
+
+class MacPermissionSetup:
+    """Request missing grants once during installation, then verify a frame."""
+
+    def __init__(self, backend):
+        self.backend = backend
+        self.requested = set()
+        self.frame_verified = False
+
+    def request(self):
+        permissions = macos_permissions()
+        for name, request in (("accessibility", request_macos_accessibility),
+                              ("screen_recording", request_macos_screen_recording)):
+            if permissions[name] is False and name not in self.requested:
+                self.requested.add(name)
+                request()
+
+    def check(self):
+        permissions = macos_permissions()
+        if not all(permissions[name] is True for name in ("screen_recording", "accessibility")):
+            self.frame_verified = False
+        elif not self.frame_verified:
+            try:
+                result = self.backend.desktop({"operation": "start"})
+                if not result.get("active"):
+                    raise ValueError("Desktop setup did not verify an active screen")
+            finally:
+                self.backend.desktop({"operation": "stop"})
+            self.frame_verified = True
+        return {"macos_permissions": permissions, "frame_verified": self.frame_verified}
+
+
+def mac_setup_window(backend):
+    import tkinter as tk
+    from tkinter import ttk
+    from PIL import Image, ImageTk
+
+    setup = MacPermissionSetup(backend)
+    window = tk.Tk()
+    window.title("Finish AIClickThatShit setup")
+    window.geometry("650x300")
+    if ICON.is_file():
+        with Image.open(ICON) as picture:
+            icon = ImageTk.PhotoImage(picture, master=window)
+        window.iconphoto(True, icon)
+    panel = ttk.Frame(window, padding=16)
+    panel.pack(fill="both", expand=True)
+    ttk.Label(panel, text="AIClickThatShit · By Uncle Matt · bttlabs.fun").pack(anchor="w")
+    ttk.Label(panel, text="Allow this app in macOS Screen & System Audio Recording and Accessibility. Setup checks these permissions before it finishes.", wraplength=610).pack(anchor="w", pady=10)
+    status = tk.StringVar(value="Checking existing permissions…")
+    ttk.Label(panel, textvariable=status, wraplength=610).pack(anchor="w", pady=10)
+    ttk.Label(panel, text="If macOS asks to quit and reopen the app, allow it. After changing a permission, Continue checks a fresh app process. Enter a password only in the macOS dialog.", wraplength=610).pack(anchor="w", pady=10)
+    finished = False
+
+    def finish(cancelled=False, result=None):
+        nonlocal finished
+        if finished:
+            return
+        finished = True
+        result = result or {"macos_permissions": macos_permissions(), "frame_verified": setup.frame_verified}
+        backend.close()
+        print(json.dumps({**result, "cancelled": cancelled}), flush=True)
+        window.destroy()
+
+    def check():
+        if finished:
+            return
+        try:
+            result = setup.check()
+            if result["frame_verified"]:
+                finish(result=result)
+                return
+            state = result["macos_permissions"]
+            label = lambda value: "allowed" if value is True else "not allowed yet" if value is False else "could not be checked"
+            status.set("Screen Recording: " + label(state["screen_recording"]) + "\nAccessibility: " + label(state["accessibility"]))
+        except Exception as error:
+            status.set(str(error))
+        window.after(1000, check)
+
+    def begin():
+        try:
+            setup.request()
+        except Exception:
+            status.set("The macOS permission request could not be opened. Check this app in Privacy & Security, then Continue.")
+        check()
+
+    row = ttk.Frame(panel)
+    row.pack(fill="x", pady=10)
+    ttk.Button(row, text="Continue", command=finish).pack(side="left")
+    ttk.Button(row, text="Cancel setup", command=lambda: finish(True)).pack(side="right")
+    window.protocol("WM_DELETE_WINDOW", lambda: finish(True))
+    window.after(100, begin)
+    window.mainloop()
 
 
 def gtk_window(backend):
@@ -158,8 +253,10 @@ def tk_window(backend):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stdio", action="store_true", help="use the extension's private native transport")
-    parser.add_argument("--doctor", action="store_true", help="report installed capabilities without opening a screen")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--stdio", action="store_true", help="use the extension's private native transport")
+    modes.add_argument("--doctor", action="store_true", help="report installed capabilities without opening a screen")
+    modes.add_argument("--setup", action="store_true", help="finish the installed macOS app's screen/input permission setup")
     parser.add_argument("--state", default=os.path.join(tempfile.gettempdir(), "churn-desktop-companion"))
     parser.add_argument("--chromium-executable")
     args = parser.parse_args(argv)
@@ -167,7 +264,11 @@ def main(argv=None):
         print(json.dumps({"platform": sys.platform, **doctor()}))
         return
     backend = Backend(args.state, args.chromium_executable)
-    if args.stdio:
+    if args.setup:
+        if sys.platform != "darwin":
+            parser.error("--setup is the macOS installation permission step")
+        mac_setup_window(backend)
+    elif args.stdio:
         serve(backend)
     elif sys.platform == "linux":
         gtk_window(backend)

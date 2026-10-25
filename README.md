@@ -166,6 +166,16 @@ Recording and Accessibility grants without prompting. Disconnect closes only
 the app instance launched for that connection, leaving a separately opened
 standalone window alone.
 
+The macOS installer checks the installed app's signing identity and permission
+state. Missing grants are completed in that app's setup window during installation;
+an already configured installation does not request them again. Packaging must use
+an existing Apple-issued signing certificate with
+`python3 scripts/build-macos.py --identity SIGNING_IDENTITY --output /new/build/ChurnThemTokensDesktop.app`.
+This creates a candidate without replacing the installed app. It refuses ad hoc
+signatures: those identify a single binary version and can make earlier privacy
+approvals stop matching after a rebuild. Keep the same bundle identifier and signing
+identity for updates. Permission setup alone does not prove live Pro input.
+
 To open the standalone window from this checkout, run
 `python3 desktop_companion.py` on Linux/macOS or `python desktop_companion.py`
 on Windows after installing the platform dependencies. The existing source
