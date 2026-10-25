@@ -132,10 +132,11 @@ and mouse access. It has its own sharing session, so stop it in that window;
 disconnecting the extension does not close a separately opened standalone app.
 Opening this window alone does not connect Pro or prove a Pro-directed click.
 
-**Live verification is still outstanding on Linux and macOS.** Windows has
+**Same-chat Pro desktop verification is still outstanding on Linux and macOS.** Windows has
 returned screenshots and a visibly completed click and typing task to the same
-Pro chat. Clean disconnect still needs confirmation on each computer. Local
-tests and a working standalone window do not establish that result.
+Pro chat. TOS has passed local primary-monitor capture, click, typing and Stop
+without a sharing dialog or password. Pro connection and clean disconnect need
+their own verification on each computer.
 
 <details>
 <summary>AIClickThatShit setup details for agents</summary>
@@ -153,9 +154,17 @@ permissions. Packaged builds must be built on the target operating system.
 
 On macOS, Turn on requests missing Accessibility and Screen Recording grants
 through the operating system. If macOS requires a change in System Settings,
-the app names the setting. `--doctor` reads Screen Recording
-and Accessibility for the calling process without prompting; an SSH result does
-not establish a separately launched app's grant.
+the app names the setting. When the desktop app is installed, the relay opens
+that same app through LaunchServices on each connection. This preserves its
+macOS permission identity; reconnecting does not rebuild or reinstall it.
+Initial authorization may require the Mac account password in System Settings.
+Agents must leave that entry to the person and verify two fresh capture/input
+sessions after setup before claiming unattended operation.
+
+`node cli.js doctor` uses the selected desktop companion and reads its Screen
+Recording and Accessibility grants without prompting. Disconnect closes only
+the app instance launched for that connection, leaving a separately opened
+standalone window alone.
 
 To open the standalone window from this checkout, run
 `python3 desktop_companion.py` on Linux/macOS or `python desktop_companion.py`

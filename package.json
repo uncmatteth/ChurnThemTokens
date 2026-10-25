@@ -29,6 +29,7 @@
     "browser-relay/",
     "ui_backend.py",
     "desktop_companion.py",
+    "macos_app_relay.py",
     "wayland_portal.py",
     "gnome_wayland.py",
     "requirements-ui.txt",

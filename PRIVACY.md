@@ -32,6 +32,11 @@ The grant is replaced after restoration and is never included in tool results
 or logs. Turning control off closes the live session; the OS's saved permission
 can be revoked through the desktop's permission controls.
 
+On macOS, the helper uses the installed desktop app's existing permission
+identity through LaunchServices. Its transient private pipes carry the local
+tool protocol without saving their contents. Disconnect ends that helper
+instance and leaves a separately opened standalone app alone.
+
 Disconnecting stops the helper's owned jobs and ends that chat's connection.
 Deleting local state or ChatGPT conversation history is a separate action under
 your control. ChatGPT handles the content sent to your account under its own

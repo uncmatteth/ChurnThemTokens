@@ -68,18 +68,21 @@ function cleanEnv(extra = {}) {
   return env;
 }
 
-function desktopCompanionCommand(config = {}) {
-  const linuxBundle = path.join(os.homedir(), 'Applications', 'ChurnThemTokensDesktop', 'bundle', 'ChurnThemTokensDesktop');
-  if (!config.python && process.platform === 'linux' && fs.existsSync(linuxBundle) && !fs.existsSync(path.join(__dirname, 'desktop_companion.py')))
+function desktopCompanionCommand(config = {}, platform = process.platform, home = os.homedir()) {
+  const linuxBundle = path.join(home, 'Applications', 'ChurnThemTokensDesktop', 'bundle', 'ChurnThemTokensDesktop');
+  if (!config.python && platform === 'linux' && fs.existsSync(linuxBundle) && !fs.existsSync(path.join(__dirname, 'desktop_companion.py')))
     return { command: linuxBundle, args: [] };
-  const installed = process.platform === 'win32'
-    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChurnThemTokensDesktop')
-    : process.platform === 'darwin'
-      ? path.join(os.homedir(), 'Applications', 'ChurnThemTokensDesktop')
+  const installed = platform === 'win32'
+    ? path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'ChurnThemTokensDesktop')
+    : platform === 'darwin'
+      ? path.join(home, 'Applications', 'ChurnThemTokensDesktop')
       : null;
-  const python = config.python || (installed && fs.existsSync(path.join(installed, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python'))
-    ? path.join(installed, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python')
-    : process.platform === 'win32' ? 'python' : 'python3');
+  const python = config.python || (installed && fs.existsSync(path.join(installed, platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python'))
+    ? path.join(installed, platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python')
+    : platform === 'win32' ? 'python' : 'python3');
+  const macApp = path.join(home, 'Applications', 'ChurnThemTokensDesktop.app');
+  if (platform === 'darwin' && fs.existsSync(macApp))
+    return { command: python, args: [path.join(__dirname, 'macos_app_relay.py'), '--app', macApp] };
   const script = installed && fs.existsSync(path.join(installed, 'desktop_companion.py'))
     ? path.join(installed, 'desktop_companion.py') : path.join(__dirname, 'desktop_companion.py');
   return { command: python, args: [script] };
@@ -578,4 +581,4 @@ class DirectBridge {
     return this.closePromise;
   }
 }
-module.exports = { DirectBridge, hash, inside, privateDir, privateWindowsAcl, atomic, jsonRead, jsonWrite, cleanEnv, validate, LIMIT };
+module.exports = { DirectBridge, desktopCompanionCommand, hash, inside, privateDir, privateWindowsAcl, atomic, jsonRead, jsonWrite, cleanEnv, validate, LIMIT };

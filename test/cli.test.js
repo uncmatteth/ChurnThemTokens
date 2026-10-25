@@ -35,6 +35,14 @@ test('CLI doctor does not claim a live ChatGPT connection or expose token', t =>
   const f = fixture(t); f.run('init', '--root', `sample=${f.root}`); const result = f.run('doctor');
   assert.equal(result.status, 0, result.stderr); assert.match(JSON.parse(result.stdout).chatgpt_connection, /not verified/); assert.equal(result.stdout.includes(jsonRead(f.config).localBearerToken), false);
 });
+test('CLI doctor checks the selected companion without running an interactive operation', { skip: process.platform === 'win32' }, t => {
+  const f = fixture(t), executable = path.join(f.temp, 'companion-python');
+  fs.writeFileSync(executable, `#!${process.execPath}\nconst path = require('node:path');\nif (!['desktop_companion.py', 'macos_app_relay.py'].includes(path.basename(process.argv[2])) || !process.argv.includes('--doctor') || process.argv.includes('--stdio')) process.exit(9);\nconsole.log(JSON.stringify({ selected_companion: true, prompting: false }));\n`, { mode: 0o700 });
+  assert.equal(f.run('init', '--root', `sample=${f.root}`, '--python', executable).status, 0);
+  const result = f.run('doctor');
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).ui, { selected_companion: true, prompting: false });
+});
 test('CLI stdio process serves tools and releases its lock on EOF', t => {
   const f = fixture(t); f.run('init', '--root', `sample=${f.root}`);
   const req = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'bridge_status', arguments: {} } };

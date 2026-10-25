@@ -5,7 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { DirectBridge, inside, privateDir, jsonRead, jsonWrite, cleanEnv } = require('./core');
+const { DirectBridge, desktopCompanionCommand, inside, privateDir, jsonRead, jsonWrite, cleanEnv } = require('./core');
 const { startStdio, startHTTP, publicOrigin, approveOAuth } = require('./transport');
 const { startNative } = require('./native');
 
@@ -96,7 +96,8 @@ async function main(argv = process.argv.slice(2)) {
   if (command === 'doctor') {
     let git = false; let ui;
     try { git = execFileSync('git', ['--version'], { encoding: 'utf8', env: cleanEnv(), timeout: 5000 }).trim(); } catch {}
-    try { ui = JSON.parse(execFileSync(config.python, [path.join(__dirname, 'ui_backend.py'), '--doctor'], { encoding: 'utf8', env: cleanEnv(), timeout: 10000 })); } catch { ui = { error: 'Optional Python backend unavailable' }; }
+    const companion = desktopCompanionCommand(config);
+    try { ui = JSON.parse(execFileSync(companion.command, [...companion.args, '--doctor', '--state', config.stateDir], { encoding: 'utf8', env: cleanEnv({ PYTHONDONTWRITEBYTECODE: '1' }), timeout: 10000 })); } catch { ui = { error: 'Selected desktop companion unavailable' }; }
     console.log(JSON.stringify({ instance_id: config.instanceId, hostname: os.hostname(), platform: process.platform, node: process.version, git, permissions: config.permissions, paused: config.paused, roots: config.projects.map(p => ({ id: p.id, exists: fs.existsSync(p.path) })), public_url_configured: !!config.publicUrl, server_lock: jsonRead(path.join(config.stateDir, 'server-lock.json'), null), ui, chatgpt_connection: 'not verified by local doctor', invokes_codex: false }, null, 2)); return;
   }
   if (command === 'approve') {
